@@ -737,16 +737,37 @@ function FlowEditorInner({ flowId, initialName, initialGraph }: Props) {
           Array.isArray((cfg.table as { columns?: unknown }).columns) &&
           (cfg.table as { columns: unknown[] }).columns.length,
       );
-      const isChart = n.data.blockType === "analyse.chart" && hasTable;
+      const isChart =
+        (n.data.blockType === "analyse.chart" ||
+          n.data.blockType === "analyse.projection") &&
+        hasTable;
       const isStats = n.data.blockType === "analyse.stats" && hasTable;
-      const fallbackW = Number(cfg.nodeWidth) || (isChart ? 480 : isStats ? 340 : 0);
-      const fallbackH = Number(cfg.nodeHeight) || (isChart ? 400 : isStats ? 320 : 0);
+      const isAi =
+        (n.data.blockType === "ai.analyse" ||
+          n.data.blockType === "ai.explain") &&
+        (Boolean(cfg.insightReport) ||
+          Boolean(cfg.explanation) ||
+          (Array.isArray(cfg.insights) && cfg.insights.length > 0));
+      const fallbackW =
+        Number(cfg.nodeWidth) ||
+        (isChart ? 480 : isStats ? 340 : isAi ? 440 : 0);
+      const fallbackH =
+        Number(cfg.nodeHeight) ||
+        (isChart
+          ? n.data.blockType === "analyse.projection"
+            ? 440
+            : 420
+          : isStats
+            ? 340
+            : isAi
+              ? 400
+              : 0);
       // Keep live RF dimensions while dragging; don't overwrite with stale config
       const w =
         typeof n.width === "number" && n.width > 0 ? n.width : fallbackW;
       const h =
         typeof n.height === "number" && n.height > 0 ? n.height : fallbackH;
-      const sized = (isChart || isStats) && w > 0 && h > 0;
+      const sized = (isChart || isStats || isAi) && w > 0 && h > 0;
 
       return {
         ...n,
@@ -1110,6 +1131,64 @@ function FlowEditorInner({ flowId, initialName, initialGraph }: Props) {
     return raw.map((e) => ({ ...e, ...EDGE_STYLE }));
   }, []);
 
+  const collectNodeSizes = useCallback(() => {
+    const sizes: Record<string, { width: number; height: number }> = {};
+    for (const n of nodesRef.current) {
+      const measured = (
+        n as Node<ActivityNodeData> & {
+          measured?: { width?: number; height?: number };
+        }
+      ).measured;
+      const cfg = n.data.config ?? {};
+      const w =
+        (typeof n.width === "number" && n.width > 0 ? n.width : 0) ||
+        (typeof measured?.width === "number" && measured.width > 0
+          ? measured.width
+          : 0) ||
+        Number(cfg.nodeWidth) ||
+        0;
+      const h =
+        (typeof n.height === "number" && n.height > 0 ? n.height : 0) ||
+        (typeof measured?.height === "number" && measured.height > 0
+          ? measured.height
+          : 0) ||
+        Number(cfg.nodeHeight) ||
+        0;
+      if (w > 0 && h > 0) {
+        sizes[n.id] = { width: w, height: h };
+      }
+    }
+    return sizes;
+  }, []);
+
+  const applyAlignedGraph = useCallback(
+    (aligned: ReturnType<typeof alignFlowGraph>) => {
+      const { nodes: n, edges: e } = flowGraphToRf(aligned, labels);
+      const nextEdges = styleEdges(e);
+      // Apply reserved showcase width/height onto RF nodes so layout matches paint
+      const sized = n.map((node) => {
+        const w = Number(node.data.config.nodeWidth);
+        const h = Number(node.data.config.nodeHeight);
+        if (Number.isFinite(w) && w > 0 && Number.isFinite(h) && h > 0) {
+          return {
+            ...node,
+            width: w,
+            height: h,
+            style: { ...node.style, width: w, height: h },
+          };
+        }
+        return node;
+      });
+      nodesRef.current = sized;
+      edgesRef.current = nextEdges;
+      setNodes(sized);
+      setEdges(nextEdges);
+      persist(sized, nextEdges);
+      return sized;
+    },
+    [labels, persist, setEdges, setNodes, styleEdges],
+  );
+
   const autoAlignActivities = useCallback(() => {
     if (historicView) {
       setStatus("Historic view is read-only — switch back to live to edit");
@@ -1119,49 +1198,60 @@ function FlowEditorInner({ flowId, initialName, initialGraph }: Props) {
       setStatus("Add activities before aligning");
       return;
     }
-    const graph = rfToFlowGraph(nodesRef.current, edgesRef.current);
-    const aligned = alignFlowGraph(graph);
-    const { nodes: n, edges: e } = flowGraphToRf(aligned, labels);
-    const nextEdges = styleEdges(e);
-    nodesRef.current = n;
-    edgesRef.current = nextEdges;
-    setNodes(n);
-    setEdges(nextEdges);
-    persist(n, nextEdges);
+    const runPass = (useMeasured: boolean) => {
+      const graph = rfToFlowGraph(nodesRef.current, edgesRef.current);
+      const aligned = alignFlowGraph(graph, {
+        sizes: useMeasured ? collectNodeSizes() : undefined,
+      });
+      applyAlignedGraph(aligned);
+    };
+    // Pass 1: content-aware estimates (+ any saved nodeWidth/Height)
+    runPass(true);
     setStatus("Activities aligned");
-    setTimeout(() => {
-      fitView({ padding: 0.35, maxZoom: 0.75, duration: 240 });
-    }, 60);
-  }, [fitView, historicView, labels, persist, setEdges, setNodes, styleEdges]);
+    // Pass 2: after paint, re-measure expanded showcases and tighten spacing
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        runPass(true);
+        fitView({ padding: 0.32, maxZoom: 0.7, duration: 280 });
+      });
+    });
+  }, [
+    applyAlignedGraph,
+    collectNodeSizes,
+    fitView,
+    historicView,
+  ]);
 
   const applyAutoPipelineGraph = useCallback(
     (
       plan: ReturnType<typeof planAutoPipeline>,
       seed?: Parameters<typeof materializeAutoPipelineGraph>[1],
     ) => {
-      // materializeAutoPipelineGraph already runs alignFlowGraph
+      // materializeAutoPipelineGraph already runs alignFlowGraph (content-aware sizes)
       const graph = materializeAutoPipelineGraph(plan, seed);
-      const { nodes: n, edges: e } = flowGraphToRf(graph, labels);
-      const nextEdges = styleEdges(e);
-      nodesRef.current = n;
-      edgesRef.current = nextEdges;
-      setNodes(n);
-      setEdges(nextEdges);
-      persist(n, nextEdges);
+      const sized = applyAlignedGraph(graph);
       setAutoPipelineBanner({
         title: plan.title,
         rationale: plan.rationale,
       });
       setStatus(`Built: ${plan.title}`);
       setSuggestion(null);
-      const ingest = n.find((x) => x.data.blockType === "ingest.csv_excel");
-      const first = ingest ?? n[0];
+      const ingest = sized.find((x) => x.data.blockType === "ingest.csv_excel");
+      const first = ingest ?? sized[0];
       if (first) setConfigNodeId(first.id);
-      setTimeout(() => {
-        fitView({ padding: 0.35, maxZoom: 0.65, duration: 240 });
-      }, 80);
+      // Second pass once showcases mount with table previews
+      requestAnimationFrame(() => {
+        requestAnimationFrame(() => {
+          const again = alignFlowGraph(
+            rfToFlowGraph(nodesRef.current, edgesRef.current),
+            { sizes: collectNodeSizes() },
+          );
+          applyAlignedGraph(again);
+          fitView({ padding: 0.32, maxZoom: 0.6, duration: 280 });
+        });
+      });
     },
-    [fitView, labels, persist, setEdges, setNodes, styleEdges],
+    [applyAlignedGraph, collectNodeSizes, fitView],
   );
 
   const stageAutoPipelineFile = useCallback(
@@ -1274,19 +1364,20 @@ function FlowEditorInner({ flowId, initialName, initialGraph }: Props) {
     const mergedNodes = [...nodesRef.current, ...created];
     const mergedEdges = [...edgesRef.current, ...newEdges];
     const aligned = alignFlowGraph(rfToFlowGraph(mergedNodes, mergedEdges));
-    const { nodes: nextNodes, edges: rawEdges } = flowGraphToRf(aligned, labels);
-    const nextEdges = rawEdges.map((e) => ({ ...e, ...EDGE_STYLE }));
-    nodesRef.current = nextNodes;
-    edgesRef.current = nextEdges;
-    setNodes(nextNodes);
-    setEdges(nextEdges);
-    persist(nextNodes, nextEdges);
+    applyAlignedGraph(aligned);
     setSuggestion(null);
     setStatus(`Quick path: ${recipe.label}`);
     if (created[0]) setConfigNodeId(created[0].id);
-    setTimeout(() => {
-      fitView({ padding: 0.4, maxZoom: 0.7, duration: 220 });
-    }, 60);
+    requestAnimationFrame(() => {
+      requestAnimationFrame(() => {
+        const again = alignFlowGraph(
+          rfToFlowGraph(nodesRef.current, edgesRef.current),
+          { sizes: collectNodeSizes() },
+        );
+        applyAlignedGraph(again);
+        fitView({ padding: 0.35, maxZoom: 0.65, duration: 240 });
+      });
+    });
   }
 
   const onNodeDragStop = useCallback(() => {

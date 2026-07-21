@@ -28,7 +28,7 @@ Auto-pipeline selling point: drop CSV/Excel or paste notes → heuristic planner
 - Stats: median, stddev, quartiles, null%; **business key findings** (`insights.ts`) + suggested next steps
 - Charts: time-series suggestion when dates exist; findings under plot; truncation notice
 - AI: structure / explain / analyse / chart-suggest; Analyse uses deterministic pre-findings; **insight cards** on canvas; Results lists **per-step** charts + findings
-- **Auto pipeline (CAP-02b):** Compact home strip + modal (goal before build); Clean/Map seeded via `suggestCleanMapConfig` (date/currency/number/boolean casts); layout via `alignFlowGraph` (also canvas **Auto align**); `planAutoPipeline` / `POST /api/flows/auto-pipeline`; timeseries / categorical / unstructured archetypes; ✦ Auto analysis quick recipe
+- **Auto pipeline (CAP-02b):** Compact home strip + modal (goal before build); Clean/Map seeded via `suggestCleanMapConfig` (date/currency/number/boolean casts); layout via `alignFlowGraph` using showcase sizes (chart 480×420, stats 340×340, AI 440×400) + live RF measurements / double-pass align; `planAutoPipeline` / `POST /api/flows/auto-pipeline`; timeseries / categorical / unstructured archetypes; ✦ Auto analysis quick recipe
 - Notify/nodemailer kept off the client: `executeRun` not in jobs barrel; canvas imports `isFlowGraph` from domain; `serverExternalPackages: ["nodemailer"]`
 - Runner: DB job queue, fair priority, ETA, worker DAG, fail/retry; live canvas progress + run log; schedules + calendar; historic `graphSnapshotJson`
 - Export: `resultJson` + `byBlockId`; per-step Results download; Structure/Forecast CSV

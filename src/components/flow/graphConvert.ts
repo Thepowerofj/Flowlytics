@@ -6,16 +6,29 @@ export function flowGraphToRf(
   graph: FlowGraph,
   labels: Record<string, string>,
 ): { nodes: Node<ActivityNodeData>[]; edges: Edge[] } {
-  const nodes: Node<ActivityNodeData>[] = graph.nodes.map((n) => ({
-    id: n.id,
-    type: "activity",
-    position: { x: n.x, y: n.y },
-    data: {
-      blockType: n.type,
-      label: labels[n.type] ?? n.type,
-      config: n.config ?? {},
-    },
-  }));
+  const nodes: Node<ActivityNodeData>[] = graph.nodes.map((n) => {
+    const cfg = n.config ?? {};
+    const w = Number(cfg.nodeWidth);
+    const h = Number(cfg.nodeHeight);
+    const sized = Number.isFinite(w) && w > 0 && Number.isFinite(h) && h > 0;
+    return {
+      id: n.id,
+      type: "activity",
+      position: { x: n.x, y: n.y },
+      ...(sized
+        ? {
+            width: w,
+            height: h,
+            style: { width: w, height: h },
+          }
+        : {}),
+      data: {
+        blockType: n.type,
+        label: labels[n.type] ?? n.type,
+        config: cfg,
+      },
+    };
+  });
 
   const edges: Edge[] = graph.edges.map((e) => ({
     id: e.id,

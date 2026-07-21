@@ -1,5 +1,7 @@
 import type { FlowEdge, FlowGraph, FlowNode } from "@/modules/blocks/domain/types";
 
+export type NodeSize = { width: number; height: number };
+
 export type FlowLayoutOptions = {
   startX?: number;
   startY?: number;
@@ -7,22 +9,146 @@ export type FlowLayoutOptions = {
   hGap?: number;
   /** Vertical gap between sibling rows. */
   vGap?: number;
-  /** Estimated activity height for stacking. */
-  nodeHeight?: number;
+  /**
+   * Live / measured sizes from the canvas (React Flow `measured` / `width`/`height`).
+   * When present these win over config estimates.
+   */
+  sizes?: Record<string, Partial<NodeSize>>;
 };
 
-/** Approximate canvas width so showcases / structure don't overlap. */
-export function estimatedNodeWidth(type: string): number {
-  if (type === "output.structure") return 280;
-  if (
-    type === "analyse.chart" ||
-    type === "analyse.projection" ||
-    type.startsWith("ai.")
-  ) {
-    return 340;
+/** Match ActivityNode defaults for expanded showcases. */
+export const SHOWCASE_SIZES = {
+  compact: { width: 220, height: 168 },
+  wide: { width: 260, height: 180 },
+  structure: { width: 280, height: 260 },
+  structureFilled: { width: 280, height: 340 },
+  stats: { width: 340, height: 340 },
+  chart: { width: 480, height: 420 },
+  forecast: { width: 480, height: 440 },
+  aiInsight: { width: 440, height: 400 },
+  aiCompact: { width: 220, height: 156 },
+  aggregate: { width: 240, height: 176 },
+} as const;
+
+function hasTablePreview(config: Record<string, unknown>): boolean {
+  const table = config.table as { columns?: unknown[] } | null | undefined;
+  return Boolean(table?.columns && table.columns.length > 0);
+}
+
+function hasChartContent(config: Record<string, unknown>): boolean {
+  if (hasTablePreview(config)) return true;
+  const run = config._runChart as { points?: unknown[] } | undefined;
+  return Boolean(run?.points && run.points.length > 0);
+}
+
+function hasAiInsightContent(config: Record<string, unknown>): boolean {
+  if (config.insightReport && typeof config.insightReport === "object") return true;
+  if (typeof config.explanation === "string" && config.explanation.trim()) return true;
+  if (Array.isArray(config.insights) && config.insights.length > 0) return true;
+  const table = config.table as { columns?: unknown[]; rows?: unknown[] } | undefined;
+  // Structured findings table from Analyse/Explain
+  if (table?.columns?.includes("title") && (table.rows?.length ?? 0) > 0) return true;
+  return false;
+}
+
+/**
+ * Estimate on-canvas footprint. Showcase activities grow when they have
+ * table / chart / insight content — layout must reserve that space.
+ */
+export function estimateNodeSize(node: Pick<FlowNode, "type" | "config">): NodeSize {
+  const config = (node.config ?? {}) as Record<string, unknown>;
+  const savedW = Number(config.nodeWidth);
+  const savedH = Number(config.nodeHeight);
+  const hasSaved =
+    Number.isFinite(savedW) &&
+    savedW > 0 &&
+    Number.isFinite(savedH) &&
+    savedH > 0;
+
+  const type = node.type;
+
+  if (type === "analyse.chart") {
+    if (hasChartContent(config)) {
+      return hasSaved
+        ? { width: savedW, height: savedH }
+        : { ...SHOWCASE_SIZES.chart };
+    }
+    return { ...SHOWCASE_SIZES.compact };
   }
-  if (type === "analyse.stats" || type === "transform.aggregate") return 240;
-  return 220;
+
+  if (type === "analyse.projection") {
+    if (hasChartContent(config)) {
+      return hasSaved
+        ? { width: savedW, height: savedH }
+        : { ...SHOWCASE_SIZES.forecast };
+    }
+    return { ...SHOWCASE_SIZES.compact };
+  }
+
+  if (type === "analyse.stats") {
+    if (hasTablePreview(config)) {
+      return hasSaved
+        ? { width: savedW, height: savedH }
+        : { ...SHOWCASE_SIZES.stats };
+    }
+    return { ...SHOWCASE_SIZES.compact };
+  }
+
+  if (type === "ai.analyse" || type === "ai.explain") {
+    if (hasAiInsightContent(config)) {
+      return hasSaved
+        ? { width: savedW, height: savedH }
+        : { ...SHOWCASE_SIZES.aiInsight };
+    }
+    return { ...SHOWCASE_SIZES.aiCompact };
+  }
+
+  if (type === "output.structure") {
+    const cols =
+      (config.selectedColumns as string[] | undefined)?.length ||
+      (config._sourceColumns as string[] | undefined)?.length ||
+      0;
+    return cols > 0
+      ? { ...SHOWCASE_SIZES.structureFilled }
+      : { ...SHOWCASE_SIZES.structure };
+  }
+
+  if (type === "transform.aggregate") {
+    return { ...SHOWCASE_SIZES.aggregate };
+  }
+
+  if (type === "transform.clean_map" && hasTablePreview(config)) {
+    // Compact card, but a bit taller when column casts are seeded
+    return { width: 220, height: 188 };
+  }
+
+  if (type === "ingest.csv_excel" && hasTablePreview(config)) {
+    return { width: 220, height: 176 };
+  }
+
+  return { ...SHOWCASE_SIZES.compact };
+}
+
+/** @deprecated use estimateNodeSize — kept for call sites/tests */
+export function estimatedNodeWidth(type: string, config?: Record<string, unknown>): number {
+  return estimateNodeSize({ type, config: config ?? {} }).width;
+}
+
+export function estimatedNodeHeight(type: string, config?: Record<string, unknown>): number {
+  return estimateNodeSize({ type, config: config ?? {} }).height;
+}
+
+function resolveSize(
+  node: FlowNode,
+  overrides?: Record<string, Partial<NodeSize>>,
+): NodeSize {
+  const estimated = estimateNodeSize(node);
+  const o = overrides?.[node.id];
+  const width =
+    o?.width && o.width > 0 ? o.width : estimated.width;
+  const height =
+    o?.height && o.height > 0 ? o.height : estimated.height;
+  return { width, height };
 }
 
 function longestPathRanks(
@@ -35,7 +161,6 @@ function longestPathRanks(
   const queue = nodeIds.filter((id) => (indeg.get(id) ?? 0) === 0);
   for (const id of queue) ranks.set(id, 0);
 
-  // Kahn with longest-path rank
   const q = [...queue];
   while (q.length) {
     const id = q.shift()!;
@@ -49,7 +174,6 @@ function longestPathRanks(
     }
   }
 
-  // Isolated / cycle leftovers
   for (const id of nodeIds) {
     if (!ranks.has(id)) ranks.set(id, 0);
   }
@@ -58,22 +182,26 @@ function longestPathRanks(
 
 /**
  * Left-to-right layered layout for pipeline graphs.
- * Reused by Auto Align on the canvas and the auto-pipeline builder.
+ * Uses per-node width/height (showcase content + optional live measurements)
+ * so expanded chart/stats/AI activities do not overlap.
  */
 export function alignFlowGraph(
   graph: FlowGraph,
   options: FlowLayoutOptions = {},
 ): FlowGraph {
   const startX = options.startX ?? 72;
-  const startY = options.startY ?? 100;
-  const hGap = options.hGap ?? 72;
-  const vGap = options.vGap ?? 56;
-  const nodeHeight = options.nodeHeight ?? 160;
+  const startY = options.startY ?? 120;
+  const hGap = options.hGap ?? 96;
+  const vGap = options.vGap ?? 72;
 
   if (!graph.nodes.length) return graph;
 
   const ids = graph.nodes.map((n) => n.id);
   const byId = new Map(graph.nodes.map((n) => [n.id, n]));
+  const sizeById = new Map(
+    graph.nodes.map((n) => [n.id, resolveSize(n, options.sizes)] as const),
+  );
+
   const outgoing = new Map<string, string[]>();
   const incomingCount = new Map<string, number>();
   for (const id of ids) {
@@ -95,7 +223,6 @@ export function alignFlowGraph(
     layers.set(r, list);
   }
 
-  // Stable order within a layer: average predecessor order, then original index
   const originalIndex = new Map(ids.map((id, i) => [id, i]));
   const sortedRanks = [...layers.keys()].sort((a, b) => a - b);
   const orderInLayer = new Map<string, number>();
@@ -121,34 +248,71 @@ export function alignFlowGraph(
     layer.forEach((id, i) => orderInLayer.set(id, i));
   }
 
-  // Column x from cumulative max width per rank
+  // Column x from cumulative max *actual* width per rank
   const rankX = new Map<number, number>();
   let cursorX = startX;
   for (const r of sortedRanks) {
     rankX.set(r, cursorX);
     const layer = layers.get(r)!;
     const maxW = Math.max(
-      ...layer.map((id) => estimatedNodeWidth(byId.get(id)!.type)),
-      220,
+      ...layer.map((id) => sizeById.get(id)!.width),
+      SHOWCASE_SIZES.compact.width,
     );
     cursorX += maxW + hGap;
   }
 
+  // Midline so single-node columns share a vertical centre (handles line up)
+  let maxStack = 0;
+  for (const r of sortedRanks) {
+    const layer = layers.get(r)!;
+    const stack =
+      layer.reduce((s, id) => s + sizeById.get(id)!.height, 0) +
+      Math.max(0, layer.length - 1) * vGap;
+    maxStack = Math.max(maxStack, stack);
+  }
+  const midline = startY + maxStack / 2;
+
+  const position = new Map<string, { x: number; y: number }>();
+  for (const r of sortedRanks) {
+    const layer = layers.get(r)!;
+    const heights = layer.map((id) => sizeById.get(id)!.height);
+    const stackH =
+      heights.reduce((s, h) => s + h, 0) + Math.max(0, layer.length - 1) * vGap;
+    let y = midline - stackH / 2;
+    const x = rankX.get(r) ?? startX;
+    for (let i = 0; i < layer.length; i++) {
+      const id = layer[i]!;
+      position.set(id, { x, y });
+      y += heights[i]! + vGap;
+    }
+  }
+
   const nodes: FlowNode[] = graph.nodes.map((n) => {
-    const r = ranks.get(n.id) ?? 0;
-    const layer = layers.get(r) ?? [n.id];
-    const index = layer.indexOf(n.id);
-    const layerCount = layer.length;
-    const stackHeight = layerCount * nodeHeight + Math.max(0, layerCount - 1) * vGap;
-    const top = startY - stackHeight / 2 + nodeHeight / 2;
+    const pos = position.get(n.id) ?? { x: startX, y: startY };
+    const size = sizeById.get(n.id)!;
+    const cfg = (n.config ?? {}) as Record<string, unknown>;
+    // Persist showcase footprint so RF remounts at the reserved size
+    const persistShowcase =
+      ((n.type === "analyse.chart" || n.type === "analyse.projection") &&
+        hasChartContent(cfg)) ||
+      (n.type === "analyse.stats" && hasTablePreview(cfg)) ||
+      ((n.type === "ai.analyse" || n.type === "ai.explain") &&
+        hasAiInsightContent(cfg));
+
     return {
       ...n,
-      x: rankX.get(r) ?? startX,
-      y: top + index * (nodeHeight + vGap),
+      x: pos.x,
+      y: pos.y,
+      config: persistShowcase
+        ? {
+            ...n.config,
+            nodeWidth: Math.round(size.width),
+            nodeHeight: Math.round(size.height),
+          }
+        : n.config,
     };
   });
 
-  // Keep edges as-is (ids / ports unchanged)
   const edges: FlowEdge[] = graph.edges.map((e) => ({ ...e }));
   return { nodes, edges };
 }
