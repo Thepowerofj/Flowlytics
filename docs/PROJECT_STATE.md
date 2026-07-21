@@ -6,6 +6,8 @@ Last updated: 2026-07-21
 
 Ship a stable local v1 of Flowlytics with honest vertical-slice docs; production deploy deferred.
 
+Public repo: https://github.com/Thepowerofj/Flowlytics
+
 # Current slice
 
 Auto-pipeline selling point: drop CSV/Excel or paste notes → heuristic planner builds a full wired analysis flow (Clean → Stats/Chart → Forecast or Aggregate → AI Analyse → Export). Plus prior analytics usability (forecast bands, AI insight showcases).
