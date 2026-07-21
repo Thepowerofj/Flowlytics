@@ -1,0 +1,74 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="920" height="220" viewBox="0 0 920 220" role="img" aria-labelledby="title desc">
+  <title id="title">Flowlytics pipeline animation</title>
+  <desc id="desc">Animated flow from ingest through clean, analyse, and export</desc>
+  <defs>
+    <linearGradient id="bg" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#F4F7F6"/>
+      <stop offset="100%" stop-color="#E8F5F2"/>
+    </linearGradient>
+    <linearGradient id="teal" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0%" stop-color="#0D9488"/>
+      <stop offset="100%" stop-color="#0F766E"/>
+    </linearGradient>
+    <filter id="soft" x="-20%" y="-20%" width="140%" height="140%">
+      <feDropShadow dx="0" dy="6" stdDeviation="8" flood-color="#0F1F1C" flood-opacity="0.08"/>
+    </filter>
+  </defs>
+
+  <rect width="920" height="220" rx="24" fill="url(#bg)"/>
+  <rect x="1" y="1" width="918" height="218" rx="23" fill="none" stroke="#E2EAE6"/>
+
+  <!-- Brand -->
+  <text x="36" y="48" font-family="Georgia, 'Times New Roman', serif" font-size="28" font-weight="700" fill="#0F1F1C">Flowlytics</text>
+  <text x="36" y="72" font-family="Segoe UI, system-ui, sans-serif" font-size="13" fill="#5A6E67">Drop data · wire a pipeline · run in the background</text>
+
+  <!-- Nodes -->
+  <g filter="url(#soft)">
+    <rect class="node" x="48" y="108" width="140" height="64" rx="14" fill="#fff" stroke="#0D9488" stroke-width="1.5"/>
+    <rect class="node" x="248" y="108" width="140" height="64" rx="14" fill="#fff" stroke="#0D9488" stroke-width="1.5"/>
+    <rect class="node" x="448" y="108" width="140" height="64" rx="14" fill="#fff" stroke="#0D9488" stroke-width="1.5"/>
+    <rect class="node" x="648" y="108" width="160" height="64" rx="14" fill="url(#teal)"/>
+  </g>
+
+  <text x="118" y="138" text-anchor="middle" font-family="Segoe UI, system-ui, sans-serif" font-size="12" font-weight="700" fill="#0F766E">Ingest</text>
+  <text x="118" y="156" text-anchor="middle" font-family="Segoe UI, system-ui, sans-serif" font-size="11" fill="#5A6E67">CSV / Excel</text>
+
+  <text x="318" y="138" text-anchor="middle" font-family="Segoe UI, system-ui, sans-serif" font-size="12" font-weight="700" fill="#0F766E">Clean / Map</text>
+  <text x="318" y="156" text-anchor="middle" font-family="Segoe UI, system-ui, sans-serif" font-size="11" fill="#5A6E67">Cast · format</text>
+
+  <text x="518" y="138" text-anchor="middle" font-family="Segoe UI, system-ui, sans-serif" font-size="12" font-weight="700" fill="#0F766E">Analyse</text>
+  <text x="518" y="156" text-anchor="middle" font-family="Segoe UI, system-ui, sans-serif" font-size="11" fill="#5A6E67">Stats · Chart · AI</text>
+
+  <text x="728" y="138" text-anchor="middle" font-family="Segoe UI, system-ui, sans-serif" font-size="12" font-weight="700" fill="#fff">Export</text>
+  <text x="728" y="156" text-anchor="middle" font-family="Segoe UI, system-ui, sans-serif" font-size="11" fill="rgba(255,255,255,0.88)">Results · CSV</text>
+
+  <!-- Animated connectors -->
+  <path id="p1" d="M188 140 H248" fill="none" stroke="#CBD5D1" stroke-width="3" stroke-linecap="round"/>
+  <path id="p2" d="M388 140 H448" fill="none" stroke="#CBD5D1" stroke-width="3" stroke-linecap="round"/>
+  <path id="p3" d="M588 140 H648" fill="none" stroke="#CBD5D1" stroke-width="3" stroke-linecap="round"/>
+
+  <circle r="5" fill="#0D9488">
+    <animateMotion dur="2.4s" repeatCount="indefinite" path="M188 140 H248"/>
+  </circle>
+  <circle r="5" fill="#0D9488">
+    <animateMotion dur="2.4s" begin="0.8s" repeatCount="indefinite" path="M388 140 H448"/>
+  </circle>
+  <circle r="5" fill="#14B8A6">
+    <animateMotion dur="2.4s" begin="1.6s" repeatCount="indefinite" path="M588 140 H648"/>
+  </circle>
+
+  <style>
+    .node { opacity: 0; }
+    .node {
+      animation: pop 2.8s ease-in-out infinite;
+    }
+    .node:nth-of-type(1) { animation-delay: 0s; }
+    .node:nth-of-type(2) { animation-delay: 0.35s; }
+    .node:nth-of-type(3) { animation-delay: 0.7s; }
+    .node:nth-of-type(4) { animation-delay: 1.05s; }
+    @keyframes pop {
+      0%, 100% { opacity: 0.85; transform: translateY(0); }
+      50% { opacity: 1; transform: translateY(-2px); }
+    }
+  </style>
+</svg>

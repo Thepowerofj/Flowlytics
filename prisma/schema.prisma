@@ -1,0 +1,234 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+enum Role {
+  USER
+  ADMIN
+}
+
+enum RunStatus {
+  QUEUED
+  RUNNING
+  SUCCEEDED
+  FAILED
+  CANCELLED
+}
+
+enum JobStatus {
+  PENDING
+  CLAIMED
+  RUNNING
+  SUCCEEDED
+  FAILED
+}
+
+enum WalletEntryType {
+  CREDIT
+  DEBIT
+  REFUND
+}
+
+model User {
+  id             String    @id @default(cuid())
+  email          String    @unique
+  name           String?
+  passwordHash   String?
+  role           Role      @default(USER)
+  isPaid         Boolean   @default(false)
+  /// Short bank payment reference (e.g. FL-K7M3PQ) — unique for admin lookup.
+  eftReference   String?   @unique
+  /// User marked “I’ve paid” on the billing screen (awaiting admin activation).
+  eftDeclaredAt  DateTime?
+  eftNote        String?
+  /// When admin activated access (start of paid window).
+  accessActivatedAt DateTime?
+  /// Access ends at this time; worker disables the account when past.
+  accessExpiresAt   DateTime?
+  disabled       Boolean   @default(false)
+  emailVerified  DateTime?
+  image          String?
+  /// Kept for future PAYG; AI uses bring-your-own LLM key instead.
+  walletBalance  Int       @default(0)
+  /// AES-GCM encrypted OpenAI-compatible API key (user BYOK).
+  llmApiKeyEnc   String?
+  createdAt      DateTime  @default(now())
+  updatedAt      DateTime  @updatedAt
+
+  accounts       Account[]
+  sessions       Session[]
+  flows          Flow[]
+  runs           FlowRun[]
+  files          UploadedFile[]
+  walletEntries  WalletEntry[]
+  usageCounters  UsageCounter?
+
+  @@index([accessExpiresAt, disabled])
+}
+
+model Account {
+  id                String  @id @default(cuid())
+  userId            String
+  type              String
+  provider          String
+  providerAccountId String
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+  user              User    @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+}
+
+model Session {
+  id           String   @id @default(cuid())
+  sessionToken String   @unique
+  userId       String
+  expires      DateTime
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model VerificationToken {
+  identifier String
+  token      String   @unique
+  expires    DateTime
+
+  @@unique([identifier, token])
+}
+
+model Flow {
+  id        String   @id @default(cuid())
+  userId    String
+  name      String
+  graphJson Json
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  runs      FlowRun[]
+  schedules Schedule[]
+
+  @@index([userId])
+}
+
+model UploadedFile {
+  id           String   @id @default(cuid())
+  userId       String
+  originalName String
+  storagePath  String
+  mimeType     String
+  sizeBytes    Int
+  createdAt    DateTime @default(now())
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+}
+
+model FlowRun {
+  id              String    @id @default(cuid())
+  flowId          String
+  userId          String
+  status          RunStatus @default(QUEUED)
+  queuePosition   Int?
+  etaSeconds      Int?
+  currentBlockId  String?
+  failedBlockId   String?
+  errorMessage    String?
+  resultJson      Json?
+  /// Pipeline graph (nodes/edges/config) at enqueue time — used for execution and historic replay.
+  graphSnapshotJson Json?
+  retryFromBlockId String?
+  createdAt       DateTime  @default(now())
+  startedAt       DateTime?
+  finishedAt      DateTime?
+  flow            Flow      @relation(fields: [flowId], references: [id], onDelete: Cascade)
+  user            User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  jobs            Job[]
+  steps           RunStep[]
+
+  @@index([userId, status])
+  @@index([status, createdAt])
+}
+
+model RunStep {
+  id        String    @id @default(cuid())
+  runId     String
+  blockId   String
+  blockType String
+  status    RunStatus @default(QUEUED)
+  outputJson Json?
+  errorMessage String?
+  startedAt DateTime?
+  finishedAt DateTime?
+  run       FlowRun   @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@index([runId])
+}
+
+model Job {
+  id        String    @id @default(cuid())
+  runId     String
+  userId    String
+  status    JobStatus @default(PENDING)
+  priority  Int       @default(100)
+  attempts  Int       @default(0)
+  lockedAt  DateTime?
+  lockedBy  String?
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  run       FlowRun   @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@index([status, priority, createdAt])
+  @@index([userId, status])
+}
+
+model Schedule {
+  id        String   @id @default(cuid())
+  flowId    String
+  userId    String
+  cronKind  String
+  enabled   Boolean  @default(true)
+  nextRunAt DateTime
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+  flow      Flow     @relation(fields: [flowId], references: [id], onDelete: Cascade)
+
+  @@index([enabled, nextRunAt])
+}
+
+model WalletEntry {
+  id        String          @id @default(cuid())
+  userId    String
+  type      WalletEntryType
+  amount    Int
+  reason    String
+  runId     String?
+  createdAt DateTime        @default(now())
+  user      User            @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+}
+
+model UsageCounter {
+  userId       String   @id
+  runCount     Int      @default(0)
+  storageBytes Int      @default(0)
+  aiCallCount  Int      @default(0)
+  updatedAt    DateTime @updatedAt
+  user         User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+}
+
+model WorkerHeartbeat {
+  id        String   @id @default("default")
+  busy      Boolean  @default(false)
+  lastSeen  DateTime @default(now())
+  metaJson  Json?
+}

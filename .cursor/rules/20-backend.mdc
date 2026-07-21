@@ -1,0 +1,7 @@
+---
+description: Backend module rules
+globs: src/modules/**/*.{ts,tsx}
+alwaysApply: false
+---
+
+Organise by capability under src/modules. Domain must not import Next/Prisma/UI. Expose module public API via index.ts. Validate at boundaries with Zod.

@@ -1,0 +1,13 @@
+---
+description: Frontend and UI rules
+globs: src/**/*.{tsx,css}
+alwaysApply: false
+---
+
+Follow docs/design/DESIGN_BRIEF.md and TOKENS.md. Update those docs when UX patterns change.
+
+Visual bar: modern node-editor clarity like https://reactflow.dev/ — spacious canvas, crisp compact nodes, obvious handles, quiet chrome — Flowlytics teal/Fraunces (never purple-glow AI cliché).
+
+Activity cards: uniform fully-rounded corners + icons. In/Out handles on the edge with captions outside the card (no overlap). Arrow edges. Palette: icons, direction strip, quick-add (Aggregate chart + Forecast recipes). Checks, then Run history, then Results (per-step CSV via `byBlockId`). Delete via × / Del; home list Delete flows. Toolbar: Run · Daily · Weekly · Custom · Manage schedules. Historic: banner + Back to live. Heavy UI in ActivityConfigWindow — Clean/Map; Aggregate (input-safe + result preview); Forecast methods; Data source picker (ancestor → rewire In-edge); AI opt-in. `_columnFormats` into charts/stats/forecast/structure. Quiet amber sample-dot + tooltip for preview samples. Chart/Forecast/Stats canvas showcases; forecast uses dashed future stroke. Clean/Map & Aggregate keep `table` as input (`_runOutputTable` after Run). Ingest output-only. Structure + Forecast + Results step picker download CSV.
+
+Keep buttons proportional (btn-sm in toolbars). Default canvas zoom ~0.65–0.7 max on fitView. Client components only for real interactivity.

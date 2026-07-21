@@ -1,0 +1,7 @@
+---
+description: Data and security rules
+globs: "{prisma,src/modules/**/*}.{ts,prisma}"
+alwaysApply: false
+---
+
+Resolve user ownership server-side. Encrypt secrets via env. AI requires opt-in and wallet balance. PII heuristics warn; never claim completeness. Migrations must be forward-safe.

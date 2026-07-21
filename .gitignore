@@ -1,0 +1,15 @@
+node_modules
+.next
+out
+dist
+.env
+.env.*
+!.env.example
+storage
+*.log
+coverage
+playwright-report
+test-results
+backup-*.sql.gz
+.DS_Store
+Thumbs.db

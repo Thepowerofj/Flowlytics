@@ -1,0 +1,7 @@
+---
+description: Delivery and ops rules
+globs: "{docker-compose*,Dockerfile*,docs/operations/**}"
+alwaysApply: false
+---
+
+Docker Compose is the default deploy path. Record release evidence. No production deploy without explicit approval.
