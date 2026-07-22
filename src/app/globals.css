@@ -3123,7 +3123,8 @@ button.chart-viz__bar-col {
   }
 }
 
-/* ——— Ask chat surface ——— */
+
+/* --- Ask chat surface --- */
 .ask-shell {
   --ask-user: #0f1f1c;
   --ask-assist: color-mix(in srgb, var(--surface) 88%, var(--accent-soft));
