@@ -10,7 +10,7 @@ const envSchema = z.object({
   GOOGLE_CLIENT_SECRET: z.string().optional().default(""),
   ADMIN_EMAILS: z.string().default("admin@example.com"),
   UPLOAD_DIR: z.string().default("./storage/uploads"),
-  MAX_UPLOAD_BYTES: z.coerce.number().default(10 * 1024 * 1024),
+  MAX_UPLOAD_BYTES: z.coerce.number().default(20 * 1024 * 1024),
   WORKER_ID: z.string().default("worker-1"),
   WORKER_CONCURRENCY: z.coerce.number().default(1),
   LLM_ENABLED: z

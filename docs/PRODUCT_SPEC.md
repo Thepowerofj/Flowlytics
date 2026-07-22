@@ -51,7 +51,7 @@ Buyer for v1: the operator (self-hosted / manually monetised).
 | CAP-03b | Auto align | Canvas toolbar Auto align spaces activities left-to-right by DAG rank without overlap; auto-pipeline and quick recipes reuse the same layout |
 | CAP-03 | Canvas graph | Compact activity nodes; connect via handles; save/load |
 | CAP-04 | Ingest configure window | Open ingest to upload/drop CSV/Excel; preview table; no input handle on ingest |
-| CAP-05 | CSV/Excel ingest | File ≤10MB parses into tabular preview; clear errors for size/type/parse failures; Excel sheet (page) + optional A1 range selection |
+| CAP-05 | CSV/Excel ingest | File ≤20MB parses into tabular preview; clear errors for size/type/parse failures; Excel sheet (page) + optional A1 range selection |
 | CAP-06 | Clean/map in config window | Off-canvas UI; auto-map on connect; rename/drop; per-column clean (trim, case, fill nulls, drop-if-empty), type convert (auto/string/number/currency/boolean/date), formatting (currency code picker, decimals, thousand separators, strip currency, date format); display formats (`_columnFormats`) cascade to Chart/Stats/Structure/Aggregate; every downstream activity is bound to Clean/Map output only — dropped columns cannot be selected later |
 | CAP-06b | Aggregate | Group by one or more columns; sum/avg/count/count distinct/min/max/% of total; read-only result preview (pickers always use upstream input); aggregated table offered to wired downstream; metric formats inherit currency/number styling |
 | CAP-06c | Upstream source picker | Chart/Stats/Forecast/Structure/AI can pick any ancestor table; Clean/Map, Aggregate, and AI steps can set a **dataset name** shown in the picker and on the canvas; changing source rewires the single In-edge |
@@ -105,7 +105,7 @@ Buyer for v1: the operator (self-hosted / manually monetised).
 
 ## 11. Non-functionals
 
-- Scale envelope: ~1–20 users, ≤10MB files, low concurrency; configurable limits.
+- Scale envelope: ~1–20 users, ≤20MB files, low concurrency; configurable limits.
 - Fair scheduling with queue position/ETA.
 - Daily DB backup + restore runbook; short downtime acceptable.
 - Accessibility: keyboard focus, contrast, meaningful labels on canvas controls.

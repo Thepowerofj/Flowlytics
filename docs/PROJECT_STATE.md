@@ -42,6 +42,7 @@ vNext full-scope implementation (accuracy fixtures → forecast playground → P
 - Ask mode shares the canvas pipeline engine (not a separate agent)
 - Forecast stays pure-TS (no ARIMA/Prophet); ensemble averages selected methods
 - URL ingest refreshes on every run (including schedules)
+- Soft upload limit default is **20MB** (`MAX_UPLOAD_BYTES=20971520`)
 
 # Known risks/blockers
 

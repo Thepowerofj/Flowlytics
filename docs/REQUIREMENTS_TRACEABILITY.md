@@ -6,7 +6,7 @@
 | CAP-02 | User A cannot read User B flows/files; owner can delete from home | `getFlowForUser` / `assertFlowOwned` / `deleteFlow`, `FlowList`, `DELETE /api/flows/[id]` | `flowOwnership.test.ts` | verified (local) |
 | CAP-03 | Compact nodes; connect via handles; save/load | `src/components/flow/*`, flows module | `ports.test.ts`, flow save/load paths | verified (local) |
 | CAP-04 | Ingest configure window; upload; no input handle | `ActivityConfigWindow`, upload API, `ports` | `ports.test.ts` | verified (local) |
-| CAP-05 | CSV/Excel ≤10MB → preview; upload errors; Excel sheet + range | `src/modules/ingest`, `/api/upload`, ingest UI in `ActivityConfigWindow` | `parseTable.test.ts` | verified (local) |
+| CAP-05 | CSV/Excel ≤20MB → preview; upload errors; Excel sheet + range | `src/modules/ingest`, `/api/upload`, ingest UI in `ActivityConfigWindow` | `parseTable.test.ts` | verified (local) |
 | CAP-06 | Clean/map off-canvas; auto-map; clean/type/format (currency + grouping); formats cascade via `_columnFormats` | `CleanMapConfig`, `autoMap`, `previewPipeline`, `columnTransform`, `columnFormat` | `autoMap.test.ts`, `columnTransform.test.ts`, `columnFormat.test.ts` | verified (local) |
 | CAP-06b | Aggregate group-by + metrics (incl. distinct / % of total); input-safe pickers; formats inherit | `aggregate.ts`, `AggregateConfig.tsx`, `formatsForAggregate`, `applyRunOutputs` | `aggregate.test.ts`, `applyRunOutputs.test.ts`, `autoMap.test.ts` | verified (local) |
 | CAP-06c | Ancestor source picker + dataset names on Clean/Aggregate/AI | `upstreamSources.ts`, `SourceDataPicker.tsx`, `DatasetNameField.tsx`, `FlowEditor` | `upstreamSources.test.ts` | verified (local) |

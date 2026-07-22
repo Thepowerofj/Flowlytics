@@ -710,7 +710,7 @@ function IngestConfig({
         <p className="mt-1 text-xs text-muted">
           {table
             ? `${formatCount(table.rows.length)} rows · ${table.columns.length} columns · full file kept for Run`
-            : "Max 10 MB · CSV or Excel (.xlsx / .xls)"}
+            : "Max 20 MB · CSV or Excel (.xlsx / .xls)"}
         </p>
         <button
           type="button"

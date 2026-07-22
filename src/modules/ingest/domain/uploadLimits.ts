@@ -1,5 +1,5 @@
 /** Default client + server limit (overridden server-side by MAX_UPLOAD_BYTES). */
-export const DEFAULT_MAX_UPLOAD_BYTES = 10 * 1024 * 1024;
+export const DEFAULT_MAX_UPLOAD_BYTES = 20 * 1024 * 1024;
 
 export function formatBytes(bytes: number): string {
   if (!Number.isFinite(bytes) || bytes < 0) return "0 B";

@@ -16,4 +16,4 @@
 ## Disk full
 
 1. Purge old artifacts beyond retention.  
-2. Enforce 10MB upload limit (already default).
+2. Enforce 20MB upload limit (already default).
