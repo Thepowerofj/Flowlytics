@@ -12,6 +12,11 @@ type Billing = {
   eftReference: string | null;
   accessExpiresAt: string | null;
   accessPeriodDays: number;
+  payfast?: {
+    configured: boolean;
+    sandbox: boolean;
+    amountZar: number;
+  };
   bank: {
     name: string;
     accountName: string;
@@ -48,6 +53,30 @@ export function BillingPanel() {
     } catch {
       setMessage("Could not copy — select the reference and copy manually.");
     }
+  }
+
+  async function payWithPayfast() {
+    setBusy(true);
+    setMessage("");
+    const res = await fetch("/api/billing/payfast/checkout", { method: "POST" });
+    const json = await res.json();
+    if (!res.ok) {
+      setBusy(false);
+      setMessage(json.error ?? "Could not start PayFast checkout");
+      return;
+    }
+    const form = document.createElement("form");
+    form.method = "POST";
+    form.action = json.actionUrl as string;
+    for (const [k, v] of Object.entries(json.fields as Record<string, string>)) {
+      const input = document.createElement("input");
+      input.type = "hidden";
+      input.name = k;
+      input.value = String(v);
+      form.appendChild(input);
+    }
+    document.body.appendChild(form);
+    form.submit();
   }
 
   async function declarePaid() {
@@ -97,8 +126,8 @@ export function BillingPanel() {
             <>Your account is disabled. Contact the operator if you believe this is a mistake.</>
           ) : (
             <>
-              Pay by EFT using your short payment reference below. After payment, declare it —
-              an admin activates you for {data.accessPeriodDays} days.
+              Pay online with PayFast for instant {data.accessPeriodDays}-day access, or use
+              manual EFT below (admin activation).
             </>
           )}
         </p>
@@ -144,11 +173,37 @@ export function BillingPanel() {
         </p>
       </section>
 
+      {!data.hasAccess && data.status !== "disabled" && data.payfast?.configured ? (
+        <section className="panel p-5">
+          <h2 className="font-semibold">Pay with PayFast</h2>
+          <p className="mt-1 text-sm text-muted">
+            Card / Instant EFT via PayFast
+            {data.payfast.sandbox ? " (sandbox)" : ""}. Access activates automatically when
+            payment completes (ITN).
+          </p>
+          <p className="mt-3 text-2xl font-semibold tracking-tight">
+            R{Number(data.payfast.amountZar).toFixed(2)}
+            <span className="ml-2 text-sm font-normal text-muted">
+              / {data.accessPeriodDays} days
+            </span>
+          </p>
+          <button
+            className="btn btn-primary mt-4"
+            type="button"
+            disabled={busy}
+            onClick={() => void payWithPayfast()}
+          >
+            {busy ? "Redirecting…" : "Continue to PayFast"}
+          </button>
+          {message ? <p className="mt-3 text-sm text-muted">{message}</p> : null}
+        </section>
+      ) : null}
+
       <section className="panel p-5">
-        <h2 className="font-semibold">EFT payment details</h2>
+        <h2 className="font-semibold">EFT payment details (fallback)</h2>
         <p className="mt-1 text-sm text-muted">
-          Transfer from your bank, then tell us you’ve paid. Access is not automatic — the admin
-          confirms the deposit and activates your account.
+          Offline bank transfer. After you declare payment, an admin confirms and activates
+          your account.
         </p>
         <dl className="mt-4 grid gap-3 text-sm sm:grid-cols-2">
           <div>

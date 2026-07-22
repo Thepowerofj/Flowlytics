@@ -1,12 +1,12 @@
 import { suggestCharts } from "@/modules/analyse/domain/charts";
 import {
   columnLooksLikeDate,
-  forecastMeasureColumns,
   guessPeriodColumn,
   numericColumns,
+  pickForecastMeasure,
 } from "@/modules/analyse/domain/stats";
 import type { FlowEdge, FlowGraph, FlowNode, TabularData } from "@/modules/blocks/domain/types";
-import { getBlock } from "@/modules/blocks/registry";
+import { blockLabel, getBlockMeta } from "@/modules/blocks/catalog";
 import { applyTableTransforms } from "@/modules/ingest/domain/columnTransform";
 import { suggestCleanMapConfig } from "@/modules/ingest/domain/suggestCleanMap";
 import { alignFlowGraph } from "./flowLayout";
@@ -47,16 +47,16 @@ function uid(prefix: string): string {
   return `${prefix}_${Math.random().toString(36).slice(2, 10)}`;
 }
 
-export function profileTable(table: TabularData): DataProfile {
+export function profileTable(table: TabularData, goal?: string): DataProfile {
   const numericCols = numericColumns(table);
   const dateCols = table.columns.filter((c) => columnLooksLikeDate(table, c));
   const categoricalCols = table.columns.filter(
     (c) => !numericCols.includes(c) && !dateCols.includes(c),
   );
-  const measureCol =
-    forecastMeasureColumns(table)[0] || numericCols[0] || "";
+  const measureCol = pickForecastMeasure(table, goal) || "";
   const periodCol = guessPeriodColumn(table, measureCol) || dateCols[0] || "";
-  const categoryCol = categoricalCols[0] || "";
+  const categoryCol =
+    categoricalCols.find((c) => !/id$/i.test(c)) || categoricalCols[0] || "";
   return {
     rowCount: table.rows.length,
     columnCount: table.columns.length,
@@ -81,14 +81,27 @@ function chartConfig(table: TabularData): Record<string, unknown> {
   };
 }
 
-function forecastConfig(profile: DataProfile): Record<string, unknown> {
+function parseHorizonPeriods(goal: string): number | null {
+  const m = goal.match(/(\d+)\s*(months?|periods?|weeks?|days?|quarters?)/i);
+  if (!m) return null;
+  const n = Number(m[1]);
+  if (!Number.isFinite(n) || n < 1) return null;
+  return Math.min(36, Math.max(1, Math.round(n)));
+}
+
+function forecastConfig(
+  profile: DataProfile,
+  goal?: string,
+): Record<string, unknown> {
+  const periods = parseHorizonPeriods(goal ?? "") ?? 3;
   return {
     column: profile.measureCol,
     periodColumn: profile.periodCol,
-    periods: 3,
+    periods,
     method: "trend",
     confidenceBand: true,
     futureMode: "count",
+    goalPrompt: (goal ?? "").trim().slice(0, 400),
   };
 }
 
@@ -116,6 +129,8 @@ export function planAutoPipeline(input: {
   /** Include AI Analyse (+ AI Structure for notes). Defaults true. */
   enableAi?: boolean;
   goal?: string;
+  /** Prior pipeline step types (Ask follow-up) — used in rationale only. */
+  priorSteps?: string[];
 }): AutoPipelinePlan {
   const enableAi = input.enableAi !== false;
   const rawText = (input.rawText ?? "").trim();
@@ -186,31 +201,46 @@ export function planAutoPipeline(input: {
     };
   }
 
-  const profile = profileTable(table);
+  const goalRaw = (input.goal ?? "").trim();
+  const goal = goalRaw.toLowerCase();
+  const profile = profileTable(table, goalRaw);
   const chart = chartConfig(table);
-  const goal = (input.goal ?? "").toLowerCase();
 
   const wantForecast =
-    /forecast|predict|outlook|trend|projection/i.test(goal) ||
-    (profile.dateCols.length > 0 && profile.measureCol && profile.rowCount >= 3);
+    /forecast|predict|outlook|trend|projection|next\s+\d+/i.test(goal) ||
+    (profile.dateCols.length > 0 &&
+      Boolean(profile.measureCol) &&
+      profile.rowCount >= 3);
   const wantAggregate =
-    /by category|breakdown|segment|region|product/i.test(goal) ||
+    /by category|breakdown|segment|region|product|group by/i.test(goal) ||
     (Boolean(profile.categoryCol) &&
       Boolean(profile.measureCol) &&
-      profile.dateCols.length === 0);
+      profile.dateCols.length === 0 &&
+      !wantForecast);
 
   let archetype: PipelineArchetype = "mixed";
   let rationale = "Balanced path: clean → explore → visualise → export.";
 
   if (wantForecast && profile.measureCol) {
     archetype = "timeseries";
-    rationale = `Detected a time-friendly series (${profile.periodCol || "periods"} × ${profile.measureCol}). Pipeline cleans, charts the trend, forecasts ahead, then writes insights.`;
+    rationale = `Forecasting **${profile.measureCol}** over **${profile.periodCol || "periods"}** (not ID/key columns). Pipeline cleans, projects the orange forecast series, then writes insights.`;
+  } else if (wantForecast && !profile.measureCol) {
+    archetype = "numeric";
+    rationale =
+      "A forecast was requested, but no suitable numeric measure was found (IDs like pharmacyId are ignored). Pipeline profiles and charts what is available — upload a value column such as Sales or Amount for forecasting.";
   } else if (wantAggregate && profile.categoryCol) {
     archetype = "categorical";
-    rationale = `Detected categories (${profile.categoryCol}) with a measure (${profile.measureCol}). Pipeline aggregates, charts the ranking, then analyses.`;
+    rationale = `Detected categories (${profile.categoryCol}) with a measure (${profile.measureCol || "count"}). Pipeline aggregates, charts the ranking, then analyses.`;
   } else if (profile.measureCol && !profile.categoryCol) {
     archetype = "numeric";
     rationale = `Numeric focus on ${profile.measureCol}. Pipeline profiles stats, charts the series, then analyses.`;
+  }
+
+  if (input.priorSteps?.length) {
+    rationale += ` Updating the connected pipeline (was: ${input.priorSteps
+      .map((t) => blockLabel(t))
+      .slice(0, 8)
+      .join(" → ")}).`;
   }
 
   const steps: AutoPipelineStep[] = [
@@ -227,17 +257,20 @@ export function planAutoPipeline(input: {
   }
 
   steps.push({ type: "analyse.stats", label: "Stats" });
-  steps.push({
-    type: "analyse.chart",
-    label: "Chart",
-    config: chart,
-  });
 
+  // Timeseries: Forecast block owns the chart (teal history + orange forecast).
+  // A separate Chart step would only show history and hide the orange series.
   if (archetype === "timeseries" && profile.measureCol) {
     steps.push({
       type: "analyse.projection",
       label: "Forecast",
-      config: forecastConfig(profile),
+      config: forecastConfig(profile, goalRaw),
+    });
+  } else {
+    steps.push({
+      type: "analyse.chart",
+      label: "Chart",
+      config: chart,
     });
   }
 
@@ -279,6 +312,30 @@ export type IngestSeed = {
   datasetName?: string;
 };
 
+/** Pull the uploaded table + file refs from an existing Ask/Builder graph. */
+export function extractIngestSeedFromGraph(graph: FlowGraph): IngestSeed | null {
+  const ingest = graph.nodes.find((n) => n.type === "ingest.csv_excel");
+  if (!ingest) return null;
+  const c = ingest.config ?? {};
+  const table = c.table as TabularData | undefined;
+  if (!table?.columns?.length || !table.rows?.length) return null;
+  return {
+    fileId: typeof c.fileId === "string" ? c.fileId : undefined,
+    fileName: typeof c.fileName === "string" ? c.fileName : undefined,
+    table,
+    sheetNames: Array.isArray(c.sheetNames) ? (c.sheetNames as string[]) : undefined,
+    excelSheet: (c.excelSheet as string | null | undefined) ?? null,
+    excelRange: typeof c.excelRange === "string" ? c.excelRange : undefined,
+    piiFindings: Array.isArray(c.piiFindings) ? c.piiFindings : undefined,
+    datasetName:
+      typeof c.datasetName === "string" ? c.datasetName : undefined,
+  };
+}
+
+export function graphStepTypes(graph: FlowGraph): string[] {
+  return graph.nodes.map((n) => n.type);
+}
+
 /** Turn a plan into a saved FlowGraph with seeded configs + aligned layout. */
 export function materializeAutoPipelineGraph(
   plan: AutoPipelinePlan,
@@ -291,10 +348,10 @@ export function materializeAutoPipelineGraph(
   let prevTable = ingestSeed?.table;
 
   plan.steps.forEach((step) => {
-    const def = getBlock(step.type);
+    const def = getBlockMeta(step.type);
     const id = uid("n");
     let config: Record<string, unknown> = {
-      ...(def?.defaultConfig ?? {}),
+      ...(def.defaultConfig ?? {}),
       ...(step.config ?? {}),
     };
 

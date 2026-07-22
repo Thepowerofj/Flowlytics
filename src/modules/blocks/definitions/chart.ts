@@ -1,23 +1,10 @@
 import { buildChartSpec } from "@/modules/analyse/domain/charts";
 import type { ColumnDisplayFormat } from "@/modules/ingest/domain/columnFormat";
 import type { BlockDefinition, TabularData } from "../domain/types";
+import { chartMeta } from "../catalog";
 
 export const chartBlock: BlockDefinition = {
-  type: "analyse.chart",
-  label: "Chart",
-  description: "Visualise the table with bar, line, or pie",
-  category: "analyse",
-  inputs: [{ id: "table", label: "Table", dataType: "table" }],
-  outputs: [
-    { id: "table", label: "Table", dataType: "table" },
-    { id: "chart", label: "Chart", dataType: "any" },
-  ],
-  defaultConfig: {
-    chartType: "bar",
-    xColumn: "",
-    yColumn: "",
-    suggestionId: "",
-  },
+  ...chartMeta,
   async run(config, inputs) {
     const table = inputs.table as TabularData;
     if (!table) throw new Error("Chart requires a table input");

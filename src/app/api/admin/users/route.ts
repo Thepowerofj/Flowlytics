@@ -8,7 +8,7 @@ import {
 import {
   findUsersByPaymentReference,
   normalizePaymentReference,
-  paymentGateway,
+  getPaymentGateway,
 } from "@/modules/billing";
 import { accessStatusOf } from "@/modules/identity/domain/access";
 import { requireAdmin } from "@/shared/lib/session";
@@ -31,7 +31,7 @@ export async function GET(req: Request) {
       }));
       return NextResponse.json({
         users,
-        gateway: paymentGateway.name,
+        gateway: getPaymentGateway().name,
         accessPeriodDays: env.ACCESS_PERIOD_DAYS,
         query: normalizePaymentReference(q) || q,
       });
@@ -40,7 +40,7 @@ export async function GET(req: Request) {
     const users = await listUsersAdmin();
     return NextResponse.json({
       users,
-      gateway: paymentGateway.name,
+      gateway: getPaymentGateway().name,
       accessPeriodDays: env.ACCESS_PERIOD_DAYS,
     });
   } catch (e) {

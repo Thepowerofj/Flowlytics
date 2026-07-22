@@ -1,17 +1,8 @@
 import type { BlockDefinition, TabularData } from "../domain/types";
+import { structureOutputMeta } from "../catalog";
 
 export const structureOutputBlock: BlockDefinition = {
-  type: "output.structure",
-  label: "Structure Output",
-  description: "Choose and order output columns for export",
-  category: "output",
-  inputs: [{ id: "table", label: "Table", dataType: "table" }],
-  outputs: [{ id: "table", label: "Table", dataType: "table" }],
-  defaultConfig: {
-    selectedColumns: [] as string[],
-    /** Suggested download filename (client uses this on export) */
-    fileName: "flowlytics-export.csv",
-  },
+  ...structureOutputMeta,
   async run(config, inputs) {
     const table = inputs.table as TabularData;
     if (!table) throw new Error("Structure Output requires a table input");

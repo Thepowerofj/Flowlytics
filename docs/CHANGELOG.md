@@ -9,6 +9,7 @@
 
 ### Added
 
+- **vNext:** forecast playground (period order, method compare, ensemble), `/ask` chat mode, PDF/PPTX export, `ingest.url` + `output.email` connectors, **PayFast** checkout + ITN auto-activate (EFT fallback). Accuracy fixtures in `fixtures/analytics/`.
 - **AI Structure output schema:** configure columns (templates: Sales / Contacts / Expenses, or from upstream); schema previews to Clean/Map/Chart/Stats before Run; JSON-mode LLM + normalized types; quick recipes “→ AI structure” / “→ AI insights”; `scripts/verify-llm.ts` smoke test for BYOK.
 - **EFT billing + 30-day access:** `/billing` shows bank details; users declare payment; admin **Activate Nd** on `/admin`; worker `expireDueAccounts` clears paid access when the window ends (login still allowed to renew). See `docs/USER_STORIES.md`.
 - **Bring-your-own LLM key** in `/settings` (encrypted); AI blocks no longer debit the wallet.

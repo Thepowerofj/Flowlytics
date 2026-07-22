@@ -67,8 +67,64 @@ model User {
   files          UploadedFile[]
   walletEntries  WalletEntry[]
   usageCounters  UsageCounter?
+  payments       Payment[]
+  chatThreads    ChatThread[]
 
   @@index([accessExpiresAt, disabled])
+}
+
+enum PaymentStatus {
+  pending
+  complete
+  failed
+  cancelled
+}
+
+model Payment {
+  id              String        @id @default(cuid())
+  userId          String
+  provider        String
+  status          PaymentStatus @default(pending)
+  amountZar       Float
+  currency        String        @default("ZAR")
+  mPaymentId      String?
+  externalId      String?
+  itemName        String
+  checkoutPayload Json?
+  rawPayload      Json?
+  createdAt       DateTime      @default(now())
+  updatedAt       DateTime      @updatedAt
+  user            User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId, createdAt])
+  @@index([mPaymentId])
+  @@index([externalId])
+}
+
+model ChatThread {
+  id        String        @id @default(cuid())
+  userId    String
+  flowId    String?
+  title     String        @default("New chat")
+  createdAt DateTime      @default(now())
+  updatedAt DateTime      @updatedAt
+  user      User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages  ChatMessage[]
+
+  @@index([userId, updatedAt])
+}
+
+model ChatMessage {
+  id        String   @id @default(cuid())
+  threadId  String
+  role      String
+  content   String
+  runId     String?
+  metaJson  Json?
+  createdAt DateTime @default(now())
+  thread    ChatThread @relation(fields: [threadId], references: [id], onDelete: Cascade)
+
+  @@index([threadId, createdAt])
 }
 
 model Account {

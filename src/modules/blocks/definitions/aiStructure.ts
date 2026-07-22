@@ -9,28 +9,10 @@ import {
   type OutputColumnSpec,
 } from "@/modules/ai/domain/structuredOutput";
 import type { BlockDefinition, TabularData } from "../domain/types";
+import { aiStructureMeta } from "../catalog";
 
 export const aiStructureBlock: BlockDefinition = {
-  type: "ai.structure",
-  label: "AI Structure Data",
-  description:
-    "Turn messy upstream data or notes into a named table (opt-in, your API key)",
-  category: "ai",
-  requiresAiOptIn: true,
-  inputs: [
-    { id: "table", label: "Table", dataType: "table" },
-    { id: "text", label: "Text", dataType: "text" },
-  ],
-  outputs: [{ id: "table", label: "Table", dataType: "table" }],
-  defaultConfig: {
-    aiOptIn: false,
-    rawText: "",
-    /** When true, AI must use the builder columns; when false, AI may invent then fill the builder. */
-    lockSchema: false,
-    outputColumns: [] as OutputColumnSpec[],
-    instructions: "",
-    datasetName: "",
-  },
+  ...aiStructureMeta,
   async run(config, inputs, ctx) {
     if (!config.aiOptIn) throw new Error("Enable AI opt-in on this block to run.");
     if (!ctx.callLlm) {

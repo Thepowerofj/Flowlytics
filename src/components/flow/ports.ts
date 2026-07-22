@@ -13,9 +13,12 @@ export function portsFor(blockType: string): { hasInput: boolean; hasOutput: boo
 export function needsConfigWindow(blockType: string): boolean {
   return (
     blockType === "ingest.csv_excel" ||
+    blockType === "ingest.url" ||
     blockType === "transform.clean_map" ||
     blockType === "transform.aggregate" ||
     blockType === "output.structure" ||
+    blockType === "output.email" ||
+    blockType === "output.presentation" ||
     blockType === "analyse.projection" ||
     blockType === "analyse.chart" ||
     blockType === "analyse.stats" ||

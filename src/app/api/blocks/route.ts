@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { listBlockSummaries } from "@/modules/blocks";
+import { listBlockSummaries } from "@/modules/blocks/catalog";
 import { requireUser } from "@/shared/lib/session";
 import { AppError } from "@/shared/lib/errors";
 

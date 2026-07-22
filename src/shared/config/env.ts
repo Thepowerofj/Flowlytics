@@ -62,6 +62,15 @@ const envSchema = z.object({
     .string()
     .default("false")
     .transform((v) => v === "true" || v === "1"),
+  /** PayFast (live access checkout). Empty merchant id → manual EFT only. */
+  PAYFAST_MERCHANT_ID: z.string().default(""),
+  PAYFAST_MERCHANT_KEY: z.string().default(""),
+  PAYFAST_PASSPHRASE: z.string().default(""),
+  PAYFAST_SANDBOX: z
+    .string()
+    .default("true")
+    .transform((v) => v === "true" || v === "1"),
+  PAYFAST_AMOUNT_ZAR: z.coerce.number().default(499),
 });
 
 export type AppEnv = z.infer<typeof envSchema>;

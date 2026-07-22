@@ -7,6 +7,10 @@ describe("portsFor", () => {
       hasInput: false,
       hasOutput: true,
     });
+    expect(portsFor("ingest.url")).toEqual({
+      hasInput: false,
+      hasOutput: true,
+    });
   });
 
   it("gives transform both ports", () => {

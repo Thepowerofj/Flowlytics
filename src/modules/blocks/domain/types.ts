@@ -25,7 +25,8 @@ export type BlockContext = {
   hasLlmKey?: boolean;
 };
 
-export type BlockDefinition = {
+/** Client-safe block metadata (no `run` — safe for browser bundles). */
+export type BlockMeta = {
   type: string;
   label: string;
   description: string;
@@ -34,6 +35,9 @@ export type BlockDefinition = {
   outputs: BlockPort[];
   defaultConfig: Record<string, unknown>;
   requiresAiOptIn?: boolean;
+};
+
+export type BlockDefinition = BlockMeta & {
   run: (
     config: Record<string, unknown>,
     inputs: Record<string, unknown>,

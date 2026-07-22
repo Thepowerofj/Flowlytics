@@ -13,6 +13,10 @@ import {
   type ForecastMethod,
   type FutureHorizonMode,
 } from "@/modules/analyse/domain/forecast";
+import {
+  PERIOD_ORDER_OPTIONS,
+  type PeriodOrder,
+} from "@/modules/analyse/domain/periodOrder";
 import { buildForecastInsights } from "@/modules/analyse/domain/insights";
 import {
   columnLooksLikeDate,
@@ -188,6 +192,76 @@ export function ActivityConfigWindow({
             />
           )}
 
+          {data.blockType === "ingest.url" && (
+            <div className="space-y-3">
+              <p className="rounded-xl bg-bg px-3 py-2 text-xs text-muted">
+                Each Run fetches a fresh CSV/Excel from this HTTPS URL — useful for schedules.
+              </p>
+              <label className="block text-sm">
+                <span className="font-medium text-ink">File URL</span>
+                <input
+                  className="input mt-1 text-sm"
+                  disabled={readOnly}
+                  value={(data.config.url as string) ?? ""}
+                  placeholder="https://example.com/sales.csv"
+                  onChange={(e) => applyPatch(nodeId, { url: e.target.value })}
+                />
+              </label>
+              <DatasetNameField
+                value={(data.config.datasetName as string) ?? ""}
+                placeholder="e.g. Weekly sales feed"
+                readOnly={readOnly}
+                onChange={(next) => applyPatch(nodeId, { datasetName: next })}
+              />
+            </div>
+          )}
+
+          {data.blockType === "output.email" && (
+            <div className="space-y-3">
+              <p className="rounded-xl bg-bg px-3 py-2 text-xs text-muted">
+                Sends a branded summary via SMTP when the pipeline runs.
+              </p>
+              <label className="block text-sm">
+                <span className="font-medium text-ink">To</span>
+                <input
+                  className="input mt-1 text-sm"
+                  disabled={readOnly}
+                  value={(data.config.to as string) ?? ""}
+                  placeholder="you@company.com"
+                  onChange={(e) => applyPatch(nodeId, { to: e.target.value })}
+                />
+              </label>
+              <label className="block text-sm">
+                <span className="font-medium text-ink">Subject</span>
+                <input
+                  className="input mt-1 text-sm"
+                  disabled={readOnly}
+                  value={(data.config.subject as string) ?? "Flowlytics results"}
+                  onChange={(e) => applyPatch(nodeId, { subject: e.target.value })}
+                />
+              </label>
+            </div>
+          )}
+
+          {data.blockType === "output.presentation" && (
+            <div className="space-y-3">
+              <p className="rounded-xl bg-bg px-3 py-2 text-xs text-muted">
+                Prepares a slide pack from run insights. Download PDF or PowerPoint from Results
+                after Run.
+              </p>
+              <label className="block text-sm">
+                <span className="font-medium text-ink">Deck title</span>
+                <input
+                  className="input mt-1 text-sm"
+                  disabled={readOnly}
+                  value={(data.config.deckTitle as string) ?? ""}
+                  placeholder="Q3 outlook"
+                  onChange={(e) => applyPatch(nodeId, { deckTitle: e.target.value })}
+                />
+              </label>
+            </div>
+          )}
+
           {data.blockType === "transform.clean_map" && (
             <div className="space-y-3">
               <p className="rounded-xl bg-bg px-3 py-2 text-xs text-muted">
@@ -260,6 +334,16 @@ export function ActivityConfigWindow({
               seasonLength={Number(data.config.seasonLength ?? 12)}
               alpha={Number(data.config.alpha ?? 0.3)}
               confidenceBand={data.config.confidenceBand !== false}
+              periodOrder={(data.config.periodOrder as string) || "auto"}
+              compareMethods={
+                Array.isArray(data.config.compareMethods)
+                  ? (data.config.compareMethods as string[])
+                  : []
+              }
+              outputShape={
+                data.config.outputShape === "wide" ? "wide" : "long"
+              }
+              goalPrompt={(data.config.goalPrompt as string) ?? ""}
               columnFormats={formats}
               onChange={(next) =>
                 applyPatch(nodeId, {
@@ -920,6 +1004,10 @@ function ProjectionConfig({
   seasonLength,
   alpha,
   confidenceBand,
+  periodOrder,
+  compareMethods,
+  outputShape,
+  goalPrompt,
   columnFormats,
   onChange,
 }: {
@@ -936,6 +1024,10 @@ function ProjectionConfig({
   seasonLength: number;
   alpha: number;
   confidenceBand: boolean;
+  periodOrder: string;
+  compareMethods: string[];
+  outputShape: "long" | "wide";
+  goalPrompt: string;
   columnFormats: Record<string, ColumnDisplayFormat>;
   onChange: (patch: Record<string, unknown>) => void;
 }) {
@@ -992,6 +1084,9 @@ function ProjectionConfig({
         seasonLength,
         alpha,
         confidenceBand,
+        periodOrder: (periodOrder as PeriodOrder) || "auto",
+        compareMethods,
+        outputShape,
       });
       if (preview.actual.length < 2) {
         previewHint =
@@ -1053,10 +1148,19 @@ function ProjectionConfig({
   return (
     <div className="space-y-5">
       <p className="rounded-xl bg-bg px-3 py-2 text-xs text-muted">
-        Forecast a <strong className="text-ink">number</strong> (e.g. Sales). Dates / months
-        are only labels on the time axis — they do not need to be numeric. History is solid;
-        forecast is dashed.
+        Forecast playground: pick a goal, measure, period order, and compare techniques.
+        Dates are axis labels — history is solid; forecast is dashed.
       </p>
+
+      <label className="block text-sm">
+        <span className="font-medium text-ink">What should we predict?</span>
+        <input
+          className="input mt-1 text-sm"
+          value={goalPrompt}
+          placeholder="e.g. Next 3 months of sales"
+          onChange={(e) => onChange({ goalPrompt: e.target.value })}
+        />
+      </label>
 
       <section className="grid gap-3 sm:grid-cols-2">
         <label className="block text-sm sm:col-span-2">
@@ -1097,6 +1201,31 @@ function ProjectionConfig({
             ))}
           </select>
         </label>
+
+        <label className="block text-sm sm:col-span-2">
+          <span className="font-medium text-ink">Period / x-axis order</span>
+          <select
+            className="input mt-1 text-sm"
+            value={periodOrder || "auto"}
+            onChange={(e) => onChange({ periodOrder: e.target.value })}
+          >
+            {PERIOD_ORDER_OPTIONS.map((o) => (
+              <option key={o.id} value={o.id}>
+                {o.label}
+              </option>
+            ))}
+          </select>
+          <span className="mt-1 block text-[11px] text-muted">
+            {PERIOD_ORDER_OPTIONS.find((o) => o.id === (periodOrder || "auto"))
+              ?.hint}
+            {preview?.chronologyWarning
+              ? " Warning: row order is not chronological — switch to Auto or Date ascending."
+              : ""}
+            {preview?.periodReordered
+              ? ` Sorted (${preview.periodOrderApplied}).`
+              : ""}
+          </span>
+        </label>
       </section>
 
       <section className="rounded-xl border border-border bg-white p-3">
@@ -1114,6 +1243,66 @@ function ProjectionConfig({
             ))}
           </select>
           <span className="mt-1 block text-[11px] text-muted">{methodMeta?.hint}</span>
+        </label>
+
+        <fieldset className="mt-3">
+          <legend className="text-sm font-medium text-ink">Compare techniques</legend>
+          <p className="mt-0.5 text-[11px] text-muted">
+            Run holdout MAE side-by-side; recommended method is highlighted after preview.
+          </p>
+          <div className="mt-2 flex flex-wrap gap-2">
+            {FORECAST_METHOD_OPTIONS.filter((m) => m.id !== "ensemble").map((m) => {
+              const on = compareMethods.includes(m.id) || m.id === safeMethod;
+              return (
+                <label
+                  key={m.id}
+                  className="flex items-center gap-1.5 rounded-lg border border-border px-2 py-1 text-[11px]"
+                >
+                  <input
+                    type="checkbox"
+                    checked={on}
+                    disabled={m.id === safeMethod}
+                    onChange={(e) => {
+                      const next = new Set(compareMethods);
+                      if (e.target.checked) next.add(m.id);
+                      else next.delete(m.id);
+                      next.add(safeMethod);
+                      onChange({ compareMethods: [...next] });
+                    }}
+                  />
+                  {m.label}
+                  {preview?.recommendedMethod === m.id ? " ★" : ""}
+                </label>
+              );
+            })}
+          </div>
+          {preview?.compare?.length ? (
+            <ul className="mt-2 space-y-1 text-[11px] text-muted">
+              {preview.compare.map((c) => (
+                <li key={c.method}>
+                  {c.method}
+                  {c.backtest
+                    ? ` — MAE ${c.backtest.mae}${
+                        c.backtest.mape != null ? `, MAPE ${c.backtest.mape}%` : ""
+                      }`
+                    : ""}
+                  {preview.recommendedMethod === c.method ? " (recommended)" : ""}
+                </li>
+              ))}
+            </ul>
+          ) : null}
+        </fieldset>
+
+        <label className="mt-3 block text-sm">
+          <span className="font-medium text-ink">Output table shape</span>
+          <select
+            className="input mt-1 text-sm"
+            value={outputShape}
+            onChange={(e) => onChange({ outputShape: e.target.value })}
+          >
+            <option value="long">Long (period, value, series)</option>
+            <option value="wide">Wide (period, actual, forecast)</option>
+          </select>
         </label>
 
         <div className="mt-3 space-y-3 border-t border-border pt-3">

@@ -1498,6 +1498,14 @@ function FlowEditorInner({ flowId, initialName, initialGraph }: Props) {
         insights.push({ blockId, label, lines: out.insights });
       }
     }
+    // Show forecast charts (orange series) before history-only charts
+    charts.sort((a, b) => {
+      const score = (c: ChartSpec) =>
+        (c.forecastSplit ? 10 : 0) +
+        (c.points?.some((p) => p.series === "Forecast") ? 10 : 0) +
+        (/forecast/i.test(c.title) ? 5 : 0);
+      return score(b.chart) - score(a.chart);
+    });
     // Fallback to top-level last-wins when byBlockId missing (older runs)
     if (!charts.length) {
       const legacy = run?.resultJson?.chart as ChartSpec | undefined;
@@ -1580,6 +1588,34 @@ function FlowEditorInner({ flowId, initialName, initialGraph }: Props) {
       setStatus(`Downloaded ${filename}`);
     } catch (e) {
       setStatus(e instanceof Error ? e.message : "Download failed");
+    }
+  }
+
+  async function downloadPresentation(format: "pdf" | "pptx") {
+    if (!run?.id || run.status !== "SUCCEEDED") {
+      setStatus("Run the flow successfully before exporting a presentation");
+      return;
+    }
+    try {
+      const res = await fetch("/api/export/presentation", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ runId: run.id, format }),
+      });
+      if (!res.ok) {
+        const json = await res.json().catch(() => ({}));
+        throw new Error(json.error ?? "Export failed");
+      }
+      const blob = await res.blob();
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = `flowlytics-${run.id.slice(-6)}.${format}`;
+      a.click();
+      URL.revokeObjectURL(url);
+      setStatus(`Downloaded ${format.toUpperCase()}`);
+    } catch (e) {
+      setStatus(e instanceof Error ? e.message : "Presentation export failed");
     }
   }
 
@@ -1736,6 +1772,13 @@ function FlowEditorInner({ flowId, initialName, initialGraph }: Props) {
           >
             Run
           </button>
+          <a
+            className="btn btn-sm btn-ghost"
+            href="/ask"
+            title="Chat-style Ask mode (pipelines still use this builder engine)"
+          >
+            Open in Ask
+          </a>
           <button
             className="btn btn-sm btn-ghost"
             type="button"
@@ -2230,13 +2273,33 @@ function FlowEditorInner({ flowId, initialName, initialGraph }: Props) {
                     </p>
                   )}
                 </div>
-                <button
-                  type="button"
-                  className="btn btn-sm btn-primary shrink-0"
-                  onClick={downloadResultCsv}
-                >
-                  Download CSV
-                </button>
+                <div className="flex shrink-0 flex-col gap-1">
+                  <button
+                    type="button"
+                    className="btn btn-sm btn-primary"
+                    onClick={downloadResultCsv}
+                  >
+                    Download CSV
+                  </button>
+                  {run?.status === "SUCCEEDED" ? (
+                    <>
+                      <button
+                        type="button"
+                        className="btn btn-sm btn-secondary"
+                        onClick={() => void downloadPresentation("pdf")}
+                      >
+                        PDF
+                      </button>
+                      <button
+                        type="button"
+                        className="btn btn-sm btn-secondary"
+                        onClick={() => void downloadPresentation("pptx")}
+                      >
+                        PowerPoint
+                      </button>
+                    </>
+                  ) : null}
+                </div>
               </div>
               <div className="mt-2 max-h-40 overflow-auto rounded-xl border border-border">
                 <table className="w-full text-left text-[10px]">

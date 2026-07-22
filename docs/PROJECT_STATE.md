@@ -1,40 +1,29 @@
 # Project State
 
-Last updated: 2026-07-21
+Last updated: 2026-07-22
 
 # Current goal
 
-Ship a stable local v1 of Flowlytics with honest vertical-slice docs; production deploy deferred.
+Ship Flowlytics vNext locally: PayFast, Ask mode, forecast playground, presentation exports, connectors — with accuracy fixtures.
 
 Public repo: https://github.com/Thepowerofj/Flowlytics
 
 # Current slice
 
-Auto-pipeline selling point: drop CSV/Excel or paste notes → heuristic planner builds a full wired analysis flow (Clean → Stats/Chart → Forecast or Aggregate → AI Analyse → Export). Plus prior analytics usability (forecast bands, AI insight showcases).
+vNext full-scope implementation (accuracy fixtures → forecast playground → PayFast → Ask → PDF/PPTX → URL/email connectors).
 
 # Completed
 
-- Control-plane docs (`BUILD_SPEC.md` playbook + `docs/PRODUCT_SPEC.md` product contract, `AGENTS.md`, architecture/design/ops/testing)
-- Scaffold: Next.js 15 + Prisma + Tailwind tokens + Docker Compose (Postgres on host port **5433**)
-- Auth: email/password signup + login; Google provider when env configured; admin via `ADMIN_EMAILS`; SMTP transactional mail (`info@flowlytics.co.za`) for welcome, reset, EFT/access, run failures
-- Admin commercial: paid toggle, EFT notes, wallet credit; payment gateway stub (`manual_eft`); short unique payment refs (`FL-XXXXXX`) + admin lookup
-- Canvas: activity nodes, labeled In/Out handles, arrow edges, palette icons + quick-add (incl. Forecast + AI recipes), right-rail checks, save/load; home flow list with Run + delete + last-run status
-- Background runs: worker queue continues if you leave home/canvas; canvas resumes live progress for in-flight runs; History for results
-- Ingest: CSV/Excel ≤10MB with explicit upload error reasons; Excel sheet + A1 range; PII heuristic warning + disclaimer; output-only ports
-- Clean/Map: auto-map; currency + thousand separators; `_columnFormats` cascade; formatted sample in inspector; quiet ≈ sample marker
-- Aggregate: group-by + sum/avg/count/count distinct/min/max/% of total; input-safe pickers + read-only result preview; `_runOutputTable` after Run
-- Source picker: choose any ancestor table on Chart/Stats/Forecast/Structure/AI (rewires In-edge)
-- Forecast toolkit: trend / moving average / naive / seasonal / smooth / growth; history+forecast viz; **shaded confidence band**; last/next **KPI strip**; outlook narrative; CSV from config
-- Stats: median, stddev, quartiles, null%; **business key findings** (`insights.ts`) + suggested next steps
-- Charts: time-series suggestion when dates exist; findings under plot; truncation notice
-- AI: structure / explain / analyse / chart-suggest; Analyse uses deterministic pre-findings; **insight cards** on canvas; Results lists **per-step** charts + findings
-- **Auto pipeline (CAP-02b):** Compact home strip + modal (goal before build); Clean/Map seeded via `suggestCleanMapConfig` (date/currency/number/boolean casts); layout via `alignFlowGraph` using showcase sizes (chart 480×420, stats 340×340, AI 440×400) + live RF measurements / double-pass align; `planAutoPipeline` / `POST /api/flows/auto-pipeline`; timeseries / categorical / unstructured archetypes; ✦ Auto analysis quick recipe
-- Notify/nodemailer kept off the client: `executeRun` not in jobs barrel; canvas imports `isFlowGraph` from domain; `serverExternalPackages: ["nodemailer"]`
-- Runner: DB job queue, fair priority, ETA, worker DAG, fail/retry; live canvas progress + run log; schedules + calendar; historic `graphSnapshotJson`
-- Export: `resultJson` + `byBlockId`; per-step Results download; Structure/Forecast CSV
-- Module public APIs: `src/modules/{ai,analyse,billing,blocks,flows,identity,ingest,jobs,notify,ops}/index.ts`
-- Notify: Flowlytics-branded HTML mail (welcome, password reset/changed, EFT declared, access activated/expired, run failed; optional run success via `MAIL_NOTIFY_RUN_SUCCESS`)
-- Tests: Vitest domain/unit suite (`pnpm test`); `pnpm exec tsc --noEmit` clean
+- Prior v1 canvas, auto-pipeline, AI BYOK, EFT access window, schedules, notify mail
+- **Accuracy:** `fixtures/analytics/*` + `accuracy.fixtures.test.ts` / `periodOrder.test.ts`
+- **Forecast playground:** period order, ensemble, method compare + holdout MAE, goal prompt, wide/long output
+- **PayFast:** checkout + ITN signature verify → `activateAccess`; EFT fallback retained; `Payment` model
+- **Ask:** `/ask` chat threads → auto-pipeline + enqueue; Attach CSV/Excel; clarify questions before first build; follow-ups reuse ingest + revise/re-run; styled chat + forecast-first results; full-bleed layout
+- **Forecast inference:** measure ranking skips ID-like columns (e.g. pharmacyId); timeseries plans use Forecast chart (orange series) instead of a history-only Chart step
+- **Blocks:** client-safe `catalog.ts` (meta/defaultConfig); full `registry.ts` (with `run`) is server/worker-only — fixes nodemailer in client bundles
+- **Present:** Polished PDF/PPTX insight packs (cover, KPI cards, findings/actions, evidence table) via `/api/export/presentation`
+- **Connectors:** `ingest.url`, `output.email`, `output.presentation` blocks
+- Tests: `pnpm test` (149); `tsc --noEmit` clean
 
 # In progress
 
@@ -42,35 +31,26 @@ Auto-pipeline selling point: drop CSV/Excel or paste notes → heuristic planner
 
 # Next
 
-1. Live payment gateway provider (requires approval)
+1. Configure live/sandbox PayFast merchant env + public ITN URL
 2. Production VPS deploy (requires approval)
-3. Google OAuth client credentials in `.env`
-3b. Set `AUTH_URL` to the public site URL in production so email links resolve correctly; rotate mailbox password if it was shared outside `.env`
-4. Optional: Playwright happy-path E2E (deferred)
-5. Optional: histogram viz on Stats; PNG chart export; LLM-refined auto-pipeline plans (beyond heuristics); PNG share of insight showcase
+3. Optional IMAP / Google Drive connectors
+4. Optional Playwright E2E
 
 # Decisions and assumptions
 
-- See `docs/architecture/` ADRs and `docs/PRODUCT_SPEC.md` for product contracts
-- Charts: always-mounted tooltip slot + persistent axis/value labels; hover uses opacity/highlight only (no layout jump)
-- Forecast uses pure-TS methods (no ARIMA/Prophet) — SMB-common toolkit only
-- Source picker keeps one In-edge (rewired) so the worker stays edge-driven
-- AI Structure schema is the canvas contract for downstream before Run; full rows arrive after Run
-- Mobile “list of steps” canvas mode is deferred — desktop/tablet primary for v1 wiring
-- Test strategy target includes Testing Library + Playwright; current gate is Vitest domain/unit tests
+- PayFast is the primary payment gateway; manual EFT is fallback only
+- Ask mode shares the canvas pipeline engine (not a separate agent)
+- Forecast stays pure-TS (no ARIMA/Prophet); ensemble averages selected methods
+- URL ingest refreshes on every run (including schedules)
 
 # Known risks/blockers
 
-- None for local development
-- Production VPS / live payments not authorised
-- Some OpenAI-compatible providers ignore `response_format: json_object` — parser still strips fences
-- SMTP host `mail.flowlytics.co.za` must resolve in DNS before live mail delivery (app logs outbound mail when SMTP is unreachable / unset)
+- PayFast ITN needs a publicly reachable `AUTH_URL` notify endpoint
+- Prisma generate can EPERM on Windows while Next holds the query engine DLL
+- SMTP host must resolve for live outbound email
 
 # Verification status
 
-- lint: not gated in CI for this slice
 - types: pass (`pnpm exec tsc --noEmit`)
-- tests: pass (`pnpm test`)
-- LLM BYOK: `pnpm exec tsx scripts/verify-llm.ts` (requires user key in Settings)
-- build: previously succeeding (`pnpm build`); re-run before release
-- deployment: local Docker Compose only; VPS not authorised
+- tests: pass (`pnpm test` — 143)
+- deployment: local Docker Compose Postgres on **5433**; VPS not authorised

@@ -7,6 +7,7 @@ import {
 } from "@/modules/ai/domain/insightReport";
 import { computeStats } from "@/modules/analyse/domain/stats";
 import type { BlockDefinition, TabularData } from "../domain/types";
+import { aiAnalyseMeta } from "../catalog";
 
 const ANALYSE_JSON_SCHEMA = `{
   "headline": "short title for the read-out",
@@ -25,19 +26,7 @@ const ANALYSE_JSON_SCHEMA = `{
 }`;
 
 export const aiAnalyseBlock: BlockDefinition = {
-  type: "ai.analyse",
-  label: "AI Analyse",
-  description:
-    "Structured business insights from your table (opt-in, your API key)",
-  category: "ai",
-  requiresAiOptIn: true,
-  inputs: [{ id: "table", label: "Table", dataType: "table" }],
-  outputs: [
-    { id: "table", label: "Insights table", dataType: "table" },
-    { id: "explanation", label: "Insights", dataType: "text" },
-    { id: "insightReport", label: "Report", dataType: "any" },
-  ],
-  defaultConfig: { aiOptIn: false, datasetName: "" },
+  ...aiAnalyseMeta,
   async run(config, inputs, ctx) {
     if (!config.aiOptIn) throw new Error("Enable AI opt-in on this block to run.");
     const source = inputs.table as TabularData;
@@ -52,6 +41,16 @@ export const aiAnalyseBlock: BlockDefinition = {
     const stats = computeStats(source);
     const baseline = buildBaselineInsightReport(source, stats);
     const sample = source.rows.slice(0, 8);
+    const question = String(config.userQuestion ?? "").trim();
+    const conversation = String(config.conversationContext ?? "").trim();
+    const pipelineContext = String(config.pipelineContext ?? "").trim();
+    const style = String(config.answerStyle ?? "exec");
+    const styleRule =
+      style === "bullets"
+        ? "Emphasize short bullet findings; keep summary terse."
+        : style === "actions"
+          ? "Emphasize nextSteps (3–5 concrete actions); findings support those actions."
+          : "Write an executive summary tone: crisp headline + decision-oriented findings.";
     const prompt = `You help small-business and personal budget owners make decisions.
 Return ONLY JSON matching this shape (no markdown):
 ${ANALYSE_JSON_SCHEMA}
@@ -61,6 +60,12 @@ Rules:
 - Prefer actionable wording (“stock more of…”, “cash dips in…”)
 - Include at least one nextSteps item
 - Use kind=metric when highlighting a number; kind=risk for gaps/volatility; kind=opportunity for upside; kind=action only inside nextSteps when possible
+- Never treat identifier columns (pharmacyId, customerId, SKU, codes) as KPIs or forecast targets — prefer Sales, Amount, Quantity, Revenue, etc.
+- If the table includes Forecast/Actual series, explain the outlook and what changed vs history
+- ${styleRule}
+${question ? `- Latest user request (adapt the read-out to this): ${question}` : ""}
+${conversation ? `\nRECENT CHAT (oldest→newest):\n${conversation.slice(0, 1600)}\n` : ""}
+${pipelineContext ? `\nCONNECTED PIPELINE:\n${pipelineContext.slice(0, 800)}\n` : ""}
 
 SOURCE SNAPSHOT: ${source.rows.length} rows, columns ${source.columns.join(", ")}
 

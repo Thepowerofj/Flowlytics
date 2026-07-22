@@ -8,6 +8,9 @@ export async function AppHeader() {
     <header className="app-shell-header">
       <BrandLogo href="/home" size="sm" />
       <div className="flex items-center gap-2 sm:gap-3">
+        <Link className="btn btn-ghost py-1.5 text-sm" href="/ask">
+          Ask
+        </Link>
         <Link className="btn btn-ghost py-1.5 text-sm" href="/billing">
           Billing
         </Link>

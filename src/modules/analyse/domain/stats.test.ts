@@ -1,9 +1,11 @@
 import { describe, expect, it } from "vitest";
 import {
   columnLooksLikeDate,
+  columnLooksLikeIdentifier,
   computeStats,
   forecastMeasureColumns,
   guessPeriodColumn,
+  pickForecastMeasure,
   projectSeries,
   toCsv,
   toNumeric,
@@ -46,6 +48,22 @@ describe("analyse stats", () => {
     expect(columnLooksLikeDate(table, "Month")).toBe(true);
     expect(forecastMeasureColumns(table)).toEqual(["Sales"]);
     expect(guessPeriodColumn(table, "Sales")).toBe("Month");
+  });
+
+  it("ignores ID-like numerics such as pharmacyId when ranking measures", () => {
+    const table = {
+      columns: ["Month", "pharmacyId", "Sales"],
+      rows: [
+        { Month: "2024-01-01", pharmacyId: 101, Sales: 120 },
+        { Month: "2024-02-01", pharmacyId: 102, Sales: 140 },
+        { Month: "2024-03-01", pharmacyId: 103, Sales: 160 },
+        { Month: "2024-04-01", pharmacyId: 104, Sales: 155 },
+      ],
+    };
+    expect(columnLooksLikeIdentifier(table, "pharmacyId")).toBe(true);
+    expect(forecastMeasureColumns(table)).toEqual(["Sales"]);
+    expect(pickForecastMeasure(table, "forecast next 3 months")).toBe("Sales");
+    expect(pickForecastMeasure(table, "predict sales")).toBe("Sales");
   });
 
   it("projects a rising series", () => {

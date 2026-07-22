@@ -3,13 +3,13 @@
 Status: Active  
 Date: 2026-07-21
 
-## Commercial model (v1)
+## Commercial model (vNext)
 
 | Concern | Behaviour |
 | --- | --- |
-| Product access | Manual EFT → user declares payment → **admin activates for 30 days** (configurable `ACCESS_PERIOD_DAYS`) |
+| Product access | **PayFast** checkout (primary) → ITN auto-activates for `ACCESS_PERIOD_DAYS`; **or** manual EFT → declare → admin Activate |
 | Auto-expiry | Worker tick clears `isPaid` when `accessExpiresAt` has passed; product routes/API reject until re-activated |
-| AI | **Bring-your-own API key** (encrypted in Settings). Wallet is **kept in schema/UI-optional** but **not used for AI** |
+| AI | **Bring-your-own API key** (encrypted in Settings). Wallet is **kept** but **not used for AI** |
 | Wallet | Ledger + balance remain for a future PAYG option; admin can still credit |
 
 ---
@@ -21,12 +21,12 @@ Date: 2026-07-21
 1. User signs up (email/password or Google) or logs in; receives a branded welcome email when SMTP is configured.
 1b. User can request a password reset from `/forgot-password` (1-hour link); receives a confirmation email after resetting.
 2. New non-admin users have **no** `accessExpiresAt` → status `pending_payment`.
-3. Visiting `/home`, `/flows/*`, or `/schedules` redirects to **`/billing`**.
-4. Billing shows operator bank details from env (`BANK_*`).
-5. User pays by EFT using their short payment reference (e.g. `FL-K7M3PQ` — shown large on Billing with Copy), then clicks **I’ve completed the EFT** (optional note); user + admins (`ADMIN_EMAILS`) get branded confirmation emails.
-6. Status stays gated until admin activates; UI shows “waiting for admin”.
+3. Visiting `/home`, `/flows/*`, `/ask`, or `/schedules` redirects to **`/billing`**.
+4. Billing shows **Pay with PayFast** when `PAYFAST_MERCHANT_*` is set, plus EFT fallback (`BANK_*` + `FL-` ref).
+5. PayFast: complete checkout → ITN activates access automatically. EFT: declare paid → wait for admin.
+6. After access: Home, Ask, Builder, Schedules.
 
-**Verify:** Register a non-admin → land/gate on Billing → declare EFT → still cannot open Home until activated.
+**Verify:** Register non-admin → Billing gate → PayFast (sandbox) or EFT path → Home unlocked after activation.
 
 ### A2. Active use (after activation)
 
@@ -54,6 +54,22 @@ Date: 2026-07-21
 
 1. Wallet badge may be absent from header; ledger/balance remain in DB.
 2. Admin “+100 wallet” is optional/legacy only.
+
+### A6. Ask mode
+
+1. `/ask` → new chat → ask a question (optionally after uploading via Auto analysis).
+2. System plans a pipeline, runs it, returns chat cards grounded in run outputs.
+3. **Open in Builder** opens the same flow.
+
+### A7. Forecast playground + exports
+
+1. Forecast config: period order, compare techniques, goal prompt, long/wide output.
+2. After Run: Results → CSV / **PDF** / **PowerPoint**.
+
+### A8. Connectors
+
+1. Add **URL file** ingest with HTTPS CSV/Excel; schedules re-fetch on each run.
+2. Add **Email results** activity with recipient + subject (SMTP).
 
 ---
 

@@ -23,6 +23,49 @@ describe("autoPipeline", () => {
     expect(plan.archetype).toBe("timeseries");
     expect(plan.steps.map((s) => s.type)).toContain("analyse.projection");
     expect(plan.steps.map((s) => s.type)).toContain("ai.analyse");
+    // Forecast owns the chart (teal + orange); no separate history-only Chart step
+    expect(plan.steps.map((s) => s.type)).not.toContain("analyse.chart");
+    const forecast = plan.steps.find((s) => s.type === "analyse.projection");
+    expect(forecast?.config?.column).toBe("Sales");
+  });
+
+  it("does not forecast pharmacyId when Sales exists", () => {
+    const plan = planAutoPipeline({
+      table: {
+        columns: ["Month", "pharmacyId", "Sales"],
+        rows: [
+          { Month: "2024-01-01", pharmacyId: 1, Sales: 100 },
+          { Month: "2024-02-01", pharmacyId: 2, Sales: 120 },
+          { Month: "2024-03-01", pharmacyId: 3, Sales: 140 },
+        ],
+      },
+      goal: "Forecast next 3 months",
+      enableAi: false,
+    });
+    expect(plan.archetype).toBe("timeseries");
+    const forecast = plan.steps.find((s) => s.type === "analyse.projection");
+    expect(forecast?.config?.column).toBe("Sales");
+    expect(forecast?.config?.periods).toBe(3);
+  });
+
+  it("reuses prior steps in rationale when updating", () => {
+    const plan = planAutoPipeline({
+      table: {
+        columns: ["Month", "Sales"],
+        rows: [
+          { Month: "2024-01-01", Sales: 10 },
+          { Month: "2024-02-01", Sales: 20 },
+          { Month: "2024-03-01", Sales: 30 },
+        ],
+      },
+      goal: "extend forecast to 6 months",
+      priorSteps: ["ingest.csv_excel", "analyse.projection"],
+      enableAi: false,
+    });
+    expect(plan.rationale).toMatch(/Updating the connected pipeline/i);
+    expect(
+      plan.steps.find((s) => s.type === "analyse.projection")?.config?.periods,
+    ).toBe(6);
   });
 
   it("builds categorical aggregate path without dates", () => {

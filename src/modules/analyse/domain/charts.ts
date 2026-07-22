@@ -1,6 +1,7 @@
 import type { ColumnDisplayFormat } from "@/modules/ingest/domain/columnFormat";
 import type { TabularData } from "@/modules/blocks/domain/types";
 import { businessInsightLines } from "./insights";
+import { comparePeriodKeys } from "./periodOrder";
 import {
   columnLooksLikeDate,
   computeStats,
@@ -202,7 +203,7 @@ export function buildChartSpec(
       buckets.set(key, (buckets.get(key) ?? 0) + (toNumeric(row[yColumn]) ?? 0));
     }
     const ordered = [...buckets.entries()].sort((a, b) =>
-      a[0].localeCompare(b[0]),
+      comparePeriodKeys(a[0], b[0]),
     );
     totalPoints = ordered.length;
     points = ordered.slice(0, 40).map(([x, y]) => ({ x, y }));

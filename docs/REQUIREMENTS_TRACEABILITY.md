@@ -20,8 +20,11 @@
 | CAP-14 | AI structure opt-in + BYOK; upstream input; builder lock or auto-suggest schema after Run | `aiStructure`, `structuredOutput`, `AiConfigPanel`, `applyRunOutputs` | `structuredOutput.test.ts`, `aiStructure.test.ts`, `applyRunOutputs.test.ts`, `autoMap.test.ts` | verified (local) |
 | CAP-15 | AI explain opt-in + BYOK; canvas text | `aiExplain` | AI key gate + stub | verified (local) |
 | CAP-15b | AI analyse + chart suggest + BYOK; chart axes auto-apply | `aiAnalyse`, `aiChart`, autoMap | stub LLM + autoMap AI chart test | verified (local) |
-| CAP-16 | Forecast toolkit + canvas viz + CSV | `forecast.ts`, `projection` block, `MiniChart` forecastSplit | `forecast.test.ts` | verified (local) |
-| CAP-17 | EFT access window + wallet retained | `accountAccess`, `/billing`, worker expiry; `billing` wallet | `access.test.ts`, `secretBox.test.ts`, `wallet.test.ts` | verified (local) |
-| CAP-18 | Admin activate/disable after EFT; optional wallet | `AdminPanel`, `adminUsers`, `/api/admin/users` | activate/revoke paths | verified (local) |
+| CAP-16 | Forecast playground + period order + compare | `forecast.ts`, `periodOrder.ts`, ProjectionConfig | `forecast.test.ts`, `periodOrder.test.ts`, `accuracy.fixtures.test.ts` | verified (local) |
+| CAP-17 | PayFast + EFT fallback + access window | `payfast.ts`, `payfastCheckout`, `/api/billing/payfast/*`, BillingPanel | `payfast.test.ts`, `access.test.ts` | verified (local) |
+| CAP-18 | Admin activate/disable; payment-ref lookup | `AdminPanel`, `adminUsers` | activate/revoke paths | verified (local) |
 | CAP-19 | Ops: queue, workers, per-user usage | `src/modules/ops` | metrics endpoint | verified (local) |
 | CAP-20 | Extensible blocks via registry | `src/modules/blocks` | registry registration | verified (local) |
+| CAP-21 | Ask mode over pipeline engine | `src/modules/ask`, `/ask`, AskPanel | manual smoke + askService paths | verified (local) |
+| CAP-22 | PDF/PPTX presentation export | `src/modules/present`, `/api/export/presentation` | `presentationModel.test.ts` | verified (local) |
+| CAP-23 | URL ingest + email output connectors | `ingestUrl`, `outputEmail` blocks | ports + block registration | verified (local) |

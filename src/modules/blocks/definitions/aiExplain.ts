@@ -7,6 +7,7 @@ import {
 } from "@/modules/ai/domain/insightReport";
 import { computeStats } from "@/modules/analyse/domain/stats";
 import type { BlockDefinition, TabularData } from "../domain/types";
+import { aiExplainMeta } from "../catalog";
 
 const EXPLAIN_JSON_SCHEMA = `{
   "headline": "short title",
@@ -25,19 +26,7 @@ const EXPLAIN_JSON_SCHEMA = `{
 }`;
 
 export const aiExplainBlock: BlockDefinition = {
-  type: "ai.explain",
-  label: "AI Explain Results",
-  description:
-    "Structured natural-language explanation of the table (opt-in, your API key)",
-  category: "ai",
-  requiresAiOptIn: true,
-  inputs: [{ id: "table", label: "Table", dataType: "table" }],
-  outputs: [
-    { id: "table", label: "Insights table", dataType: "table" },
-    { id: "explanation", label: "Explanation", dataType: "text" },
-    { id: "insightReport", label: "Report", dataType: "any" },
-  ],
-  defaultConfig: { aiOptIn: false, datasetName: "" },
+  ...aiExplainMeta,
   async run(config, inputs, ctx) {
     if (!config.aiOptIn) throw new Error("Enable AI opt-in on this block to run.");
     const source = inputs.table as TabularData;

@@ -22,10 +22,13 @@ export default async function HomeDashboard() {
             </p>
           </div>
           <div className="flex flex-wrap items-center gap-2">
+            <Link href="/ask" className="btn btn-sm btn-secondary">
+              Ask
+            </Link>
             <Link
               href="/schedules"
               className="btn btn-sm btn-ghost"
-              title="Early access — no external pipeline connections yet"
+              title="Schedules can refresh URL ingest sources on each run"
             >
               Schedules
               <span className="schedule-early-pill">Early</span>

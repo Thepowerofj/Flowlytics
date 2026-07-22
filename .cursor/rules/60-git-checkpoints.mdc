@@ -1,0 +1,27 @@
+---
+description: Periodic git commits and GitHub push so Cursor work is not lost
+alwaysApply: true
+---
+
+# Git checkpoints (do not lose Cursor work)
+
+While implementing in this repo, **checkpoint to GitHub periodically** — do not leave large uncommitted slices only in the working tree.
+
+## When to commit + push
+
+- After a coherent slice lands (feature, fix, or UX change with docs/state updated), **or**
+- About every **20–40 minutes** of active implementation if work is still in progress, **or**
+- Before risky refactors, dependency changes, or ending a long agent turn with substantial diffs
+
+Prefer small, reviewable commits over one giant dump at the end of a session.
+
+## How
+
+1. Follow the repo commit protocol: status, diff, log; stage relevant files; commit with a clear why-focused message; then `git status`.
+2. **Push** to the tracked remote (`git push -u origin HEAD` when needed) so the checkpoint exists on GitHub — not only local commits.
+3. Never commit secrets (`.env`, keys, credentials). Skip `tsconfig.tsbuildinfo` noise unless the project normally tracks it.
+4. Do not use destructive git (`push --force` to main, hard reset) unless the user explicitly asks.
+
+## Scope note
+
+This overrides the default “only commit when asked” habit **for this repository**: the user wants automatic checkpoints. Still avoid empty commits and avoid amending pushed history unless explicitly requested.

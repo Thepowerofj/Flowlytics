@@ -4,62 +4,46 @@ import {
 } from "@/modules/analyse/domain/forecast";
 import { buildForecastInsights } from "@/modules/analyse/domain/insights";
 import {
-  columnLooksLikeDate,
+  columnLooksLikeIdentifier,
   forecastMeasureColumns,
   guessPeriodColumn,
-  toNumeric,
+  pickForecastMeasure,
 } from "@/modules/analyse/domain/stats";
 import {
   resolveValueFormat,
   type ColumnDisplayFormat,
 } from "@/modules/ingest/domain/columnFormat";
 import type { BlockDefinition, TabularData } from "../domain/types";
+import { projectionMeta } from "../catalog";
 
-function resolveValueColumn(table: TabularData, configured: string): string {
+function resolveValueColumn(
+  table: TabularData,
+  configured: string,
+  goal?: string,
+): string {
   const measures = forecastMeasureColumns(table);
+  // Honour an explicit measure only when it ranks as forecastable (never pharmacyId-style keys)
   if (configured && measures.includes(configured)) return configured;
-  // Configured column exists but isn't a measure (e.g. a date) — pick a real measure
-  if (configured && table.columns.includes(configured)) {
-    const numericCount = table.rows.filter((r) => toNumeric(r[configured]) != null).length;
-    if (numericCount >= 2 && !columnLooksLikeDate(table, configured)) {
-      return configured;
-    }
+  if (configured && columnLooksLikeIdentifier(table, configured)) {
+    return pickForecastMeasure(table, goal) || measures[0] || "";
   }
-  return measures[0] || "";
+  return pickForecastMeasure(table, goal) || measures[0] || "";
 }
 
 export const projectionBlock: BlockDefinition = {
-  type: "analyse.projection",
-  label: "Forecast",
-  description:
-    "Project a numeric series forward with trend, averages, seasonality, or growth",
-  category: "analyse",
-  inputs: [{ id: "table", label: "Table", dataType: "table" }],
-  outputs: [
-    { id: "table", label: "Table", dataType: "table" },
-    { id: "projection", label: "Projection", dataType: "any" },
-  ],
-  defaultConfig: {
-    column: "",
-    periodColumn: "",
-    periods: 3,
-    futureMode: "count",
-    untilDate: "",
-    customFutureDates: "",
-    method: "trend",
-    window: 3,
-    seasonLength: 12,
-    alpha: 0.3,
-    confidenceBand: true,
-  },
+  ...projectionMeta,
   async run(config, inputs) {
     const table = inputs.table as TabularData;
     if (!table) throw new Error("Forecast requires a table input");
 
-    const column = resolveValueColumn(table, (config.column as string) || "");
+    const column = resolveValueColumn(
+      table,
+      (config.column as string) || "",
+      String(config.goalPrompt ?? ""),
+    );
     if (!column) {
       throw new Error(
-        "No numeric measure to forecast. Pick a number column (e.g. Sales) — dates/months are only used as period labels.",
+        "No numeric measure to forecast. Pick a value column (e.g. Sales, Amount, Quantity) — not IDs like pharmacyId.",
       );
     }
 
@@ -67,6 +51,13 @@ export const projectionBlock: BlockDefinition = {
     if (!periodColumn || periodColumn === column || !table.columns.includes(periodColumn)) {
       periodColumn = guessPeriodColumn(table, column);
     }
+
+    const compareRaw = config.compareMethods;
+    const compareMethods = Array.isArray(compareRaw)
+      ? (compareRaw as string[])
+      : typeof compareRaw === "string" && compareRaw
+        ? compareRaw.split(",").map((s) => s.trim())
+        : [];
 
     const result = buildForecast(table, {
       column,
@@ -80,6 +71,9 @@ export const projectionBlock: BlockDefinition = {
       seasonLength: Number(config.seasonLength ?? 12),
       alpha: Number(config.alpha ?? 0.3),
       confidenceBand: config.confidenceBand !== false,
+      periodOrder: (config.periodOrder as string) || "auto",
+      compareMethods,
+      outputShape: config.outputShape === "wide" ? "wide" : "long",
     });
 
     if (result.actual.length === 0) {

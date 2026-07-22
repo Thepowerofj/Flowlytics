@@ -1,6 +1,11 @@
 import type { TabularData } from "@/modules/blocks/domain/types";
 import { parseDate } from "@/modules/ingest/domain/columnTransform";
-import { toNumeric } from "./stats";
+import {
+  extractHistoryPoints,
+  isChronologicallySorted,
+  orderHistoryPoints,
+  type PeriodOrder,
+} from "./periodOrder";
 
 export type ForecastMethod =
   | "trend"
@@ -8,7 +13,8 @@ export type ForecastMethod =
   | "naive"
   | "seasonal_naive"
   | "smooth"
-  | "growth";
+  | "growth"
+  | "ensemble";
 
 export const FORECAST_METHOD_OPTIONS: {
   id: ForecastMethod;
@@ -45,6 +51,11 @@ export const FORECAST_METHOD_OPTIONS: {
     label: "Growth rate",
     hint: "Continues the average period-over-period growth",
   },
+  {
+    id: "ensemble",
+    label: "Ensemble average",
+    hint: "Averages several techniques for a more stable outlook",
+  },
 ];
 
 export type ForecastOptions = {
@@ -58,6 +69,8 @@ export type ForecastOptions = {
   alpha?: number;
   /** Include simple residual confidence band on trend/smooth. */
   confidenceBand?: boolean;
+  /** Methods to average when method is ensemble (default: trend + moving_average + smooth). */
+  ensembleMethods?: ForecastMethod[];
 };
 
 export type ForecastPoint = {
@@ -66,6 +79,19 @@ export type ForecastPoint = {
   series: "Actual" | "Forecast";
   low?: number | null;
   high?: number | null;
+};
+
+export type BacktestSummary = {
+  holdout: number;
+  mae: number;
+  mape: number | null;
+  method: ForecastMethod;
+};
+
+export type MethodCompareRow = {
+  method: ForecastMethod;
+  forecast: number[];
+  backtest?: BacktestSummary;
 };
 
 export type ForecastResult = {
@@ -77,6 +103,12 @@ export type ForecastResult = {
   points: ForecastPoint[];
   table: TabularData;
   band?: { low: number[]; high: number[] };
+  periodOrderApplied?: string;
+  periodReordered?: boolean;
+  chronologyWarning?: boolean;
+  compare?: MethodCompareRow[];
+  recommendedMethod?: ForecastMethod;
+  backtest?: BacktestSummary;
 };
 
 function clampPeriods(n: number): number {
@@ -100,6 +132,22 @@ export function forecastValues(
   if (!values.length) return Array.from({ length: periods }, () => 0);
   if (values.length === 1) {
     return Array.from({ length: periods }, () => values[0]!);
+  }
+
+  if (options.method === "ensemble") {
+    const members = (
+      options.ensembleMethods?.length
+        ? options.ensembleMethods
+        : (["trend", "moving_average", "smooth"] as ForecastMethod[])
+    ).filter((m) => m !== "ensemble");
+    const series = members.map((method) =>
+      forecastValues(values, { ...options, method, periods }),
+    );
+    return Array.from({ length: periods }, (_, i) => {
+      const nums = series.map((s) => s[i]!).filter((n) => Number.isFinite(n));
+      const avg = nums.reduce((a, b) => a + b, 0) / Math.max(1, nums.length);
+      return Number(avg.toFixed(2));
+    });
   }
 
   switch (options.method) {
@@ -315,6 +363,67 @@ export function resolveFutureLabels(
   return nextPeriodLabels(history, config.periods ?? 3);
 }
 
+/** Holdout backtest: forecast last `holdout` points from earlier history. */
+export function backtestMethod(
+  values: number[],
+  method: ForecastMethod,
+  options: Omit<ForecastOptions, "method" | "periods"> & { holdout?: number } = {},
+): BacktestSummary | undefined {
+  const holdout = Math.min(
+    Math.max(1, options.holdout ?? 2),
+    Math.max(1, values.length - 2),
+  );
+  if (values.length < holdout + 2) return undefined;
+  const train = values.slice(0, values.length - holdout);
+  const actualHold = values.slice(values.length - holdout);
+  const pred = forecastValues(train, {
+    ...options,
+    method,
+    periods: holdout,
+  });
+  let absErr = 0;
+  let pctSum = 0;
+  let pctN = 0;
+  for (let i = 0; i < holdout; i++) {
+    const a = actualHold[i]!;
+    const p = pred[i]!;
+    absErr += Math.abs(a - p);
+    if (a !== 0) {
+      pctSum += Math.abs((a - p) / a);
+      pctN += 1;
+    }
+  }
+  return {
+    holdout,
+    method,
+    mae: Number((absErr / holdout).toFixed(4)),
+    mape: pctN ? Number(((pctSum / pctN) * 100).toFixed(2)) : null,
+  };
+}
+
+export function compareForecastMethods(
+  values: number[],
+  methods: ForecastMethod[],
+  periods: number,
+  options: Omit<ForecastOptions, "method" | "periods"> = {},
+): { compare: MethodCompareRow[]; recommended: ForecastMethod } {
+  const compare: MethodCompareRow[] = methods.map((method) => ({
+    method,
+    forecast: forecastValues(values, { ...options, method, periods }),
+    backtest: backtestMethod(values, method, options),
+  }));
+  let recommended = methods[0] ?? "trend";
+  let best = Infinity;
+  for (const row of compare) {
+    const score = row.backtest?.mae ?? Infinity;
+    if (score < best) {
+      best = score;
+      recommended = row.method;
+    }
+  }
+  return { compare, recommended };
+}
+
 export function buildForecast(
   table: TabularData,
   config: {
@@ -329,31 +438,34 @@ export function buildForecast(
     seasonLength?: number;
     alpha?: number;
     confidenceBand?: boolean;
+    periodOrder?: PeriodOrder | string;
+    compareMethods?: ForecastMethod[] | string[];
+    outputShape?: "long" | "wide";
   },
 ): ForecastResult {
   const column = config.column;
   const method = config.method ?? "trend";
 
-  const actual: number[] = [];
-  const periodLabels: string[] = [];
   const periodCol =
     config.periodColumn && config.periodColumn !== column
       ? config.periodColumn
       : "";
-  table.rows.forEach((row, i) => {
-    const n = toNumeric(row[column]);
-    if (n == null) return;
-    actual.push(n);
-    periodLabels.push(
-      periodCol && row[periodCol] != null && row[periodCol] !== ""
-        ? String(row[periodCol])
-        : `Period ${i + 1}`,
-    );
-  });
+  const rawPoints = extractHistoryPoints(table.rows, column, periodCol);
+  const asIsLabels = rawPoints.map((p) => p.label);
+  const chronologyWarning =
+    !isChronologicallySorted(asIsLabels) &&
+    (config.periodOrder === "as_is" ||
+      (!config.periodOrder && !isChronologicallySorted(asIsLabels)));
+
+  const { ordered, applied, reordered } = orderHistoryPoints(
+    rawPoints,
+    config.periodOrder ?? "auto",
+  );
+  const actual = ordered.map((p) => p.value);
+  const periodLabels = ordered.map((p) => p.label);
 
   const futureLabels = resolveFutureLabels(periodLabels, config);
   const periods = clampPeriods(futureLabels.length || config.periods || 3);
-  // Ensure label count matches periods (pad if resolve returned empty somehow)
   while (futureLabels.length < periods) {
     futureLabels.push(`F${futureLabels.length + 1}`);
   }
@@ -370,6 +482,16 @@ export function buildForecast(
 
   const forecast = forecastValues(actual, options);
   const band = residualBand(actual, method, options);
+  const backtest = backtestMethod(actual, method, options);
+
+  const compareList = (config.compareMethods ?? [])
+    .map((m) => m as ForecastMethod)
+    .filter((m) => FORECAST_METHOD_OPTIONS.some((o) => o.id === m));
+  const uniqueCompare = [...new Set([method, ...compareList])];
+  const { compare, recommended } =
+    uniqueCompare.length > 1
+      ? compareForecastMethods(actual, uniqueCompare, periods, options)
+      : { compare: undefined, recommended: method };
 
   const points: ForecastPoint[] = [
     ...actual.map((value, i) => ({
@@ -386,10 +508,10 @@ export function buildForecast(
     })),
   ];
 
-  const columns = band
+  const longColumns = band
     ? ["period", "value", "series", "low", "high"]
     : ["period", "value", "series"];
-  const rows: TabularData["rows"] = points.map((p) => {
+  const longRows: TabularData["rows"] = points.map((p) => {
     const row: Record<string, string | number | null> = {
       period: p.period,
       value: p.value,
@@ -402,6 +524,29 @@ export function buildForecast(
     return row;
   });
 
+  let outTable: TabularData = { columns: longColumns, rows: longRows };
+  if (config.outputShape === "wide") {
+    const wideCols = ["period", "actual", "forecast"];
+    if (band) wideCols.push("low", "high");
+    const byPeriod = new Map<string, Record<string, string | number | null>>();
+    for (const p of points) {
+      const row = byPeriod.get(p.period) ?? { period: p.period };
+      if (p.series === "Actual") row.actual = p.value;
+      else {
+        row.forecast = p.value;
+        if (band) {
+          row.low = p.low ?? null;
+          row.high = p.high ?? null;
+        }
+      }
+      byPeriod.set(p.period, row);
+    }
+    outTable = {
+      columns: wideCols,
+      rows: [...byPeriod.values()],
+    };
+  }
+
   return {
     method,
     column,
@@ -410,7 +555,15 @@ export function buildForecast(
     forecast,
     points,
     band,
-    table: { columns, rows },
+    table: outTable,
+    periodOrderApplied: applied,
+    periodReordered: reordered,
+    chronologyWarning:
+      chronologyWarning ||
+      (!isChronologicallySorted(asIsLabels) && applied === "as_is"),
+    compare,
+    recommendedMethod: recommended,
+    backtest,
   };
 }
 

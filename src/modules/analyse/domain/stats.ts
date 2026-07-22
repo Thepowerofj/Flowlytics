@@ -124,9 +124,94 @@ export function numericColumns(table: TabularData): string[] {
   return table.columns.filter((c) => columnLooksNumeric(table, c));
 }
 
-/** Numeric measure columns suitable to forecast (excludes date/period fields). */
+/** Names that usually mean a business measure worth forecasting. */
+const MEASURE_NAME_RE =
+  /(sales|revenue|amount|total|qty|quantity|units|volume|value|price|cost|profit|spend|income|turnover|demand|orders?|margin|net|gross|balance|stock|weight)/i;
+
+/** Names that usually mean identifiers / keys — never forecast these. */
+const ID_NAME_RE =
+  /(^id$|_id$|Id$|ID$|uuid|guid|sku$|(^|_)code$|index$|row.?num|pk$|pharmacyid|customerid|userid|storeid|productid|patientid)/i;
+
+function columnNumericValues(
+  table: TabularData,
+  column: string,
+): number[] {
+  return table.rows
+    .map((r) => toNumeric(r[column]))
+    .filter((v): v is number => v != null);
+}
+
+/** True for ID-like numerics (pharmacyId, near-unique integers, etc.). */
+export function columnLooksLikeIdentifier(
+  table: TabularData,
+  column: string,
+): boolean {
+  if (ID_NAME_RE.test(column)) return true;
+  if (MEASURE_NAME_RE.test(column)) return false;
+  const vals = columnNumericValues(table, column);
+  if (vals.length < 2) return false;
+  const unique = new Set(vals.map((v) => String(v)));
+  const allIntegers = vals.every((v) => Number.isInteger(v));
+  // Near-unique integer keys behave like IDs, not quantities
+  if (allIntegers && unique.size >= Math.max(2, Math.ceil(vals.length * 0.85))) {
+    return true;
+  }
+  return false;
+}
+
+function scoreForecastMeasure(table: TabularData, column: string): number {
+  let score = 0;
+  if (MEASURE_NAME_RE.test(column)) score += 50;
+  if (columnLooksLikeIdentifier(table, column)) score -= 100;
+  if (columnLooksLikeDate(table, column)) score -= 100;
+
+  const vals = columnNumericValues(table, column);
+  if (vals.length < 2) return score - 20;
+
+  const unique = new Set(vals.map((v) => String(v)));
+  const mean = vals.reduce((a, b) => a + b, 0) / vals.length;
+  const variance =
+    vals.reduce((s, v) => s + (v - mean) ** 2, 0) / Math.max(1, vals.length - 1);
+  // Prefer columns with real spread (sales) over flat codes
+  if (variance > 0) score += Math.min(25, Math.log10(variance + 1) * 8);
+  // Slight preference for repeated values (aggregated series) over unique keys
+  if (unique.size < vals.length * 0.5) score += 10;
+  // Prefer non-negative business quantities
+  if (vals.every((v) => v >= 0)) score += 5;
+  return score;
+}
+
+/**
+ * Numeric measure columns suitable to forecast, ranked best-first.
+ * Excludes dates and ID-like fields (e.g. pharmacyId).
+ */
 export function forecastMeasureColumns(table: TabularData): string[] {
-  return numericColumns(table);
+  return numericColumns(table)
+    .filter((c) => !columnLooksLikeIdentifier(table, c))
+    .map((c) => ({ c, score: scoreForecastMeasure(table, c) }))
+    .filter((x) => x.score > -50)
+    .sort((a, b) => b.score - a.score || a.c.localeCompare(b.c))
+    .map((x) => x.c);
+}
+
+/** Pick the best forecast measure, honouring an explicit goal mention when valid. */
+export function pickForecastMeasure(
+  table: TabularData,
+  goal?: string,
+): string {
+  const ranked = forecastMeasureColumns(table);
+  if (!ranked.length) return "";
+  const g = (goal ?? "").toLowerCase();
+  if (g) {
+    const mentioned = ranked.find((c) => g.includes(c.toLowerCase()));
+    if (mentioned) return mentioned;
+    // Goal may name a measure synonym even if column title differs slightly
+    if (MEASURE_NAME_RE.test(g)) {
+      const byName = ranked.find((c) => MEASURE_NAME_RE.test(c));
+      if (byName) return byName;
+    }
+  }
+  return ranked[0]!;
 }
 
 /** Best period/label column for a forecast (dates preferred). */
@@ -138,8 +223,12 @@ export function guessPeriodColumn(
   const dated = candidates.filter((c) => columnLooksLikeDate(table, c));
   if (dated[0]) return dated[0];
   // Fall back to first non-measure text-ish column
-  const measures = new Set(numericColumns(table));
-  return candidates.find((c) => !measures.has(c)) ?? "";
+  const measures = new Set(forecastMeasureColumns(table));
+  return (
+    candidates.find((c) => !measures.has(c) && !columnLooksLikeIdentifier(table, c)) ??
+    candidates.find((c) => !measures.has(c)) ??
+    ""
+  );
 }
 
 export function computeStats(table: TabularData): ColumnStats[] {

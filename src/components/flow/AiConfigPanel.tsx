@@ -153,6 +153,34 @@ export function AiConfigPanel({ blockType, config, readOnly, onChange }: Props) 
         </span>
       </label>
 
+      {(blockType === "ai.analyse" || blockType === "ai.explain") && (
+        <section className="space-y-2 rounded-xl border border-border bg-white px-3 py-3">
+          <label className="block text-sm">
+            <span className="font-medium text-ink">Your question (optional)</span>
+            <input
+              className="input mt-1 text-sm"
+              disabled={readOnly}
+              value={(config.userQuestion as string) ?? ""}
+              placeholder="e.g. Where are we losing margin?"
+              onChange={(e) => onChange({ userQuestion: e.target.value })}
+            />
+          </label>
+          <label className="block text-sm">
+            <span className="font-medium text-ink">Answer style</span>
+            <select
+              className="input mt-1 text-sm"
+              disabled={readOnly}
+              value={(config.answerStyle as string) || "exec"}
+              onChange={(e) => onChange({ answerStyle: e.target.value })}
+            >
+              <option value="exec">Executive summary</option>
+              <option value="bullets">Bullet findings</option>
+              <option value="actions">Next actions</option>
+            </select>
+          </label>
+        </section>
+      )}
+
       {blockType === "ai.structure" && (
         <>
           <section className="rounded-xl border border-border bg-white px-3 py-3">

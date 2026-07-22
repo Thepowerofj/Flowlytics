@@ -1,20 +1,10 @@
 import { suggestCharts } from "@/modules/analyse/domain/charts";
 import { parseLlmJson } from "@/modules/ai/domain/structuredOutput";
 import type { BlockDefinition, TabularData } from "../domain/types";
+import { aiChartMeta } from "../catalog";
 
 export const aiChartBlock: BlockDefinition = {
-  type: "ai.chart",
-  label: "AI Chart Suggest",
-  description: "Suggest the best chart type and axes (opt-in, your API key)",
-  category: "ai",
-  requiresAiOptIn: true,
-  inputs: [{ id: "table", label: "Table", dataType: "table" }],
-  outputs: [
-    { id: "table", label: "Table", dataType: "table" },
-    { id: "explanation", label: "Suggestion", dataType: "text" },
-    { id: "chart", label: "Chart", dataType: "any" },
-  ],
-  defaultConfig: { aiOptIn: false, datasetName: "" },
+  ...aiChartMeta,
   async run(config, inputs, ctx) {
     if (!config.aiOptIn) throw new Error("Enable AI opt-in on this block to run.");
     const table = inputs.table as TabularData;

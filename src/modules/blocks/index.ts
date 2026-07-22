@@ -1,2 +1,2 @@
 export * from "./domain/types";
-export * from "./registry";
+export * from "./catalog";

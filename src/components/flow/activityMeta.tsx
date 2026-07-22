@@ -32,6 +32,27 @@ export function iconForBlock(type: string, className?: string) {
           <path d="M8 13h8M8 17h5" />
         </Svg>
       );
+    case "ingest.url":
+      return (
+        <Svg {...p}>
+          <path d="M10 13a5 5 0 0 0 7.07 0l1.41-1.41a5 5 0 0 0-7.07-7.07L10 5" />
+          <path d="M14 11a5 5 0 0 0-7.07 0L5.5 12.4a5 5 0 0 0 7.07 7.07L14 18" />
+        </Svg>
+      );
+    case "output.email":
+      return (
+        <Svg {...p}>
+          <path d="M4 6h16v12H4z" />
+          <path d="M4 7l8 6 8-6" />
+        </Svg>
+      );
+    case "output.presentation":
+      return (
+        <Svg {...p}>
+          <path d="M4 5h16v10H4z" />
+          <path d="M12 15v4M8 19h8" />
+        </Svg>
+      );
     case "transform.clean_map":
       return (
         <Svg {...p}>

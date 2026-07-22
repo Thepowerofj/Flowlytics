@@ -3,4 +3,4 @@ description: Core engineering rules for Flowlytics
 alwaysApply: true
 ---
 
-Follow AGENTS.md and docs/PRODUCT_SPEC.md. Prefer modular monolith vertical slices. Keep PROJECT_STATE.md current. When changing UX or product behaviour, update docs/PRODUCT_SPEC.md, docs/design/*, ASSUMPTIONS.md if needed, and relevant .cursor/rules in the same change. No secrets in git. No production deploy without approval.
+Follow AGENTS.md and docs/PRODUCT_SPEC.md. Prefer modular monolith vertical slices. Keep PROJECT_STATE.md current. When changing UX or product behaviour, update docs/PRODUCT_SPEC.md, docs/design/*, ASSUMPTIONS.md if needed, and relevant .cursor/rules in the same change. Periodically commit and push to GitHub during long Cursor sessions (see 60-git-checkpoints.mdc). No secrets in git. No production deploy without approval.

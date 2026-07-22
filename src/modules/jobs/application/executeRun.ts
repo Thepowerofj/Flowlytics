@@ -1,4 +1,4 @@
-import { getBlock } from "@/modules/blocks";
+import { getBlock } from "@/modules/blocks/registry";
 import type { FlowGraph } from "@/modules/blocks/domain/types";
 import { getEnv } from "@/shared/config/env";
 import { prisma } from "@/shared/lib/prisma";

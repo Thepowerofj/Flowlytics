@@ -17,10 +17,11 @@ You are the accountable engineering team for this repository. Follow `BUILD_SPEC
 
 - Read before editing; keep `docs/PROJECT_STATE.md` current.
 - Work in vertical slices; never invent completion evidence.
+- **Checkpoint to GitHub periodically** (commit + push) during Cursor sessions so work is not lost — see `.cursor/rules/60-git-checkpoints.mdc`.
 - No secrets in git; no production deploy or destructive ops without explicit approval.
 - Modular monolith: domain modules with public `index.ts` APIs.
 - Jobs run in a separate worker process via a database-backed queue.
-- AI/LLM steps require per-block opt-in and sufficient wallet balance.
+- AI/LLM steps require per-block opt-in and the user’s BYOK API key (wallet is not required for AI).
 - Never trust client-supplied `userId`; resolve ownership server-side.
 
 ## Stack defaults

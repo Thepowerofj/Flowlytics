@@ -33,7 +33,7 @@ Buyer for v1: the operator (self-hosted / manually monetised).
 
 ## 5. Primary journeys
 
-1. Sign up (email or Google) → **Billing** (EFT instructions) → declare payment → wait for admin → Home → create flow.
+1. Sign up (email or Google) → **Billing** (PayFast or EFT) → access granted → Home / Ask → create or chat-build a flow.
 2. Add ingest → open configure window → upload CSV/Excel (sheet + optional A1 range for Excel; clear errors if too large/invalid) → wire to Clean/Map (and optionally Aggregate) → Stats/Chart → Structure → **Run** → view full-dataset results → download CSV.
 3. Schedule from the flow toolbar or `/schedules` (pick any existing pipeline; daily/weekly/custom) → see queued/running status on canvas + calendar.
 4. Open Run history → inspect a historic snapshot (read-only) → Back to live.
@@ -64,18 +64,21 @@ Buyer for v1: the operator (self-hosted / manually monetised).
 | CAP-13 | Schedule | Daily / weekly / custom interval schedules create runs; pause/remove schedules; calendar view of upcoming pipeline runs; calendar page can schedule any existing pipeline (picker + frequency) |
 | CAP-14 | AI structure (opt-in) | Takes wired upstream table and/or pasted notes → table; empty column builder lets AI invent then auto-fills the builder with typed suggestions; builder/templates lock the schema for the next Run; schema usable downstream before Run; BYOK in Settings |
 | CAP-15 | AI explain (opt-in) | Structured explanation report (headline, findings, next steps); **expanded styled showcase** on canvas after Run; Out table is structured findings for downstream; BYOK |
-| CAP-15b | AI analyse + chart suggest (opt-in) | Structured JSON insight report + findings table (`section/kind/title/detail/metric`); expanded showcase like Chart nodes; deterministic pre-findings seed the model; chart-suggest for axes; BYOK; `LLM_DEV_STUB`; Results shows **per-step** styled reports |
-| CAP-16 | Forecast toolkit | Trend, recent average, last value, seasonal cycle, smooth trend, growth rate; history+forecast canvas viz with **KPI strip** (last / next / % change); optional **shaded confidence band** on chart; plain-language outlook; downloadable series from Forecast config or Results |
-| CAP-17 | Access + wallet | EFT + admin activation for N days; each user gets a short unique payment ref (`FL-XXXXXX`, no ambiguous chars); worker expires access; wallet ledger kept (not required for AI) |
-| CAP-18 | Admin commercial | Activate/disable users after EFT; **lookup by payment reference**; see declarations; optional wallet credit; gateway stub |
+| CAP-15b | AI analyse + chart suggest (opt-in) | Structured JSON insight report + findings table; optional **user question** + answer style (exec/bullets/actions); expanded showcase; deterministic pre-findings; chart-suggest; BYOK |
+| CAP-16 | Forecast playground | Trend, moving average, naive, seasonal, smooth, growth, **ensemble**; **period/x-axis order** (auto chronological); method **compare + holdout MAE**; goal prompt; long/wide output; KPI strip + band; downloadable series |
+| CAP-17 | Access + PayFast | **PayFast** checkout primary (ITN auto-activates N days); manual EFT fallback + admin activate; `FL-XXXXXX` refs; worker expires access; wallet ledger retained (not for AI) |
+| CAP-18 | Admin commercial | Activate/disable; payment-ref lookup; see EFT declarations + PayFast payments; optional wallet credit |
 | CAP-19 | Ops monitoring | Queue depth, active runs, worker status, per-user usage |
 | CAP-20 | Extensible blocks | New block registers via block registry port |
+| CAP-21 | Ask mode | Chat surface (`/ask`) builds/runs the same pipeline engine; attach CSV/Excel; quick dataset scan + clarifying questions before first build; follow-ups reuse/revise/re-run; forecast measures exclude IDs; forecast charts (teal + orange); styled chat + rich results; Open in Builder |
+| CAP-22 | Presentation export | Polished PDF + PowerPoint insight packs (cover, KPIs, findings, actions, evidence table, closing) from run results; Results download + `output.presentation` activity |
+| CAP-23 | External connectors | `ingest.url` (HTTPS CSV/Excel refresh on run/schedule); `output.email` (SMTP summary); secrets never in client graph |
 
 ## 7. Scope
 
-**Must have:** CAP-01–CAP-20 as above.  
-**Must not:** Full BI suite, general agent platform, Jupyter replacement, live card gateway (stub only), multi-user sharing.  
-**Deferred:** Multi-tenant orgs, Redis/BullMQ, multi-worker horizontal scale-out, PDF report, live payment provider.  
+**Must have:** CAP-01–CAP-23 as above.  
+**Must not:** Full BI suite, general agent platform, Jupyter replacement, multi-user sharing.  
+**Deferred:** Multi-tenant orgs, Redis/BullMQ, multi-worker horizontal scale-out, IMAP mailbox ingest, Google Drive OAuth.  
 **Future-compatible:** Block registry, wallet/gateway ports, `userId` ownership, separate worker process.
 
 ## 8. Data and integrations
@@ -94,10 +97,10 @@ Buyer for v1: the operator (self-hosted / manually monetised).
 
 ## 10. Commercial
 
-- Manual EFT: bank details from env; user declares payment; admin activates for `ACCESS_PERIOD_DAYS` (default 30).
-- Worker job expires access when `accessExpiresAt` passes (login still allowed for renewal).
-- Wallet ledger retained for future PAYG; not used to gate AI in v1.
-- `PaymentGateway` port stubbed for future integration.
+- **PayFast** primary: checkout → ITN webhook verifies signature → `activateAccess` for `ACCESS_PERIOD_DAYS` (default 30). Env: `PAYFAST_*`.
+- Manual EFT fallback: bank details + declare payment + admin Activate.
+- Worker expires access when `accessExpiresAt` passes (login still allowed for renewal).
+- Wallet ledger retained for future PAYG; not used to gate AI.
 - Detailed journeys: `docs/USER_STORIES.md`.
 
 ## 11. Non-functionals
@@ -122,6 +125,6 @@ Next.js, TypeScript, Tailwind, Prisma, PostgreSQL, Zod, Docker Compose on single
 
 ## 14. Open decisions (post-v1)
 
-- Live payment gateway provider
 - Production VPS provider/hostname
 - Exact LLM vendor/model SKU
+- IMAP / Google Drive connector credentials model

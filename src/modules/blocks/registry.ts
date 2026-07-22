@@ -1,4 +1,5 @@
 import type { BlockDefinition } from "./domain/types";
+import { listBlockSummaries as listSummariesFromCatalog } from "./catalog";
 import { ingestCsvExcelBlock } from "./definitions/ingestCsvExcel";
 import { cleanMapBlock } from "./definitions/cleanMap";
 import { aggregateBlock } from "./definitions/aggregate";
@@ -10,14 +11,21 @@ import { aiExplainBlock } from "./definitions/aiExplain";
 import { aiAnalyseBlock } from "./definitions/aiAnalyse";
 import { aiChartBlock } from "./definitions/aiChart";
 import { projectionBlock } from "./definitions/projection";
+import { ingestUrlBlock } from "./definitions/ingestUrl";
+import { outputEmailBlock } from "./definitions/outputEmail";
+import { outputPresentationBlock } from "./definitions/outputPresentation";
 
+/** Server/worker registry — includes `run`. Do not import from Client Components. */
 const blocks: BlockDefinition[] = [
   ingestCsvExcelBlock,
+  ingestUrlBlock,
   cleanMapBlock,
   aggregateBlock,
   statsBlock,
   chartBlock,
   structureOutputBlock,
+  outputEmailBlock,
+  outputPresentationBlock,
   aiStructureBlock,
   aiExplainBlock,
   aiAnalyseBlock,
@@ -38,11 +46,5 @@ export function getBlock(type: string): BlockDefinition {
 }
 
 export function listBlockSummaries() {
-  return blocks.map(({ type, label, description, category, requiresAiOptIn }) => ({
-    type,
-    label,
-    description,
-    category,
-    requiresAiOptIn: Boolean(requiresAiOptIn),
-  }));
+  return listSummariesFromCatalog();
 }

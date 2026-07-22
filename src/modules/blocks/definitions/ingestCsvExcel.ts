@@ -1,18 +1,8 @@
 import type { BlockDefinition, TabularData } from "../domain/types";
+import { ingestCsvExcelMeta } from "../catalog";
 
 export const ingestCsvExcelBlock: BlockDefinition = {
-  type: "ingest.csv_excel",
-  label: "Ingest CSV / Excel",
-  description: "Load a tabular file into the flow",
-  category: "ingest",
-  inputs: [],
-  outputs: [{ id: "table", label: "Table", dataType: "table" }],
-  defaultConfig: {
-    fileName: "",
-    table: null as TabularData | null,
-    piiFindings: [],
-    piiAcknowledged: false,
-  },
+  ...ingestCsvExcelMeta,
   async run(config) {
     const table = config.table as TabularData | null;
     if (!table?.columns?.length) {

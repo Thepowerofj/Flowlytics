@@ -9,4 +9,6 @@
 
 Prefer real DB (Testcontainers or compose) for job/wallet invariants when expanding integration coverage. Mock LLM only at the adapter boundary.
 
+**Accuracy gate (analytics):** golden CSVs in `fixtures/analytics/` must keep forecast chronological ordering and aggregate/stats expectations green (`accuracy.fixtures.test.ts`, `periodOrder.test.ts`, `payfast.test.ts`).
+
 Current release gate: `pnpm test` + `pnpm exec tsc --noEmit`. Record counts in `docs/testing/RELEASE_EVIDENCE.md` and `docs/PROJECT_STATE.md`.

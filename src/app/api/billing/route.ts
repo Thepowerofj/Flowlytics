@@ -26,6 +26,11 @@ export async function GET() {
       eftReference,
       accessExpiresAt: access.accessExpiresAt,
       accessPeriodDays: env.ACCESS_PERIOD_DAYS,
+      payfast: {
+        configured: Boolean(env.PAYFAST_MERCHANT_ID && env.PAYFAST_MERCHANT_KEY),
+        sandbox: env.PAYFAST_SANDBOX,
+        amountZar: env.PAYFAST_AMOUNT_ZAR,
+      },
       bank: {
         name: env.BANK_NAME,
         accountName: env.BANK_ACCOUNT_NAME,
