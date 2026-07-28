@@ -133,6 +133,17 @@ describe("charts", () => {
     ).toBeNull();
   });
 
+  it("rejects charts when points is a compacted non-array", () => {
+    expect(
+      normalizeChartSpec({
+        type: "line",
+        title: "Broken",
+        points: "…truncated…",
+        insights: "still a string",
+      }),
+    ).toBeNull();
+  });
+
   it("keeps forecast points when truncating long history", () => {
     const points = [
       ...Array.from({ length: 40 }, (_, i) => ({

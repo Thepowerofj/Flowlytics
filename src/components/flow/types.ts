@@ -70,6 +70,13 @@ export type RunState = {
 
 export function tablePreview(config: Record<string, unknown>): TabularData | null {
   const table = config.table as TabularData | undefined;
-  if (!table?.columns?.length) return null;
+  if (
+    !table ||
+    !Array.isArray(table.columns) ||
+    !table.columns.length ||
+    !Array.isArray(table.rows)
+  ) {
+    return null;
+  }
   return table;
 }

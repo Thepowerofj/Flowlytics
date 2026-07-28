@@ -329,8 +329,16 @@ export function ActivityConfigWindow({
             <AggregateConfig
               columns={sourceColumns}
               table={table}
-              groupBy={(data.config.groupBy as string[]) ?? []}
-              metrics={(data.config.metrics as AggregateMetric[]) ?? []}
+              groupBy={
+                Array.isArray(data.config.groupBy)
+                  ? (data.config.groupBy as string[])
+                  : []
+              }
+              metrics={
+                Array.isArray(data.config.metrics)
+                  ? (data.config.metrics as AggregateMetric[])
+                  : []
+              }
               inputFormats={inputFormatsOf(data.config)}
               datasetName={(data.config.datasetName as string) ?? ""}
               onChange={(next) => applyPatch(nodeId, next)}
@@ -340,7 +348,11 @@ export function ActivityConfigWindow({
           {data.blockType === "output.structure" && (
             <StructureConfig
               columns={sourceColumns}
-              selected={(data.config.selectedColumns as string[]) ?? sourceColumns}
+              selected={
+                Array.isArray(data.config.selectedColumns)
+                  ? (data.config.selectedColumns as string[])
+                  : sourceColumns
+              }
               fileName={(data.config.fileName as string) || "flowlytics-export.csv"}
               table={table}
               columnFormats={formats}
@@ -1108,7 +1120,7 @@ function ProjectionConfig({
         alpha,
         confidenceBand,
         periodOrder: (periodOrder as PeriodOrder) || "auto",
-        compareMethods,
+        compareMethods: compareMethods.length ? compareMethods : undefined,
         outputShape,
       });
       if (preview.actual.length < 2) {

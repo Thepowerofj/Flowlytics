@@ -102,6 +102,7 @@ export function previewOutputTable(
         seasonLength: Number(config.seasonLength ?? 12),
         alpha: Number(config.alpha ?? 0.3),
         confidenceBand: config.confidenceBand !== false,
+        compareMethods: [],
       });
       if (result.actual.length < 2) return sampled;
       return result.table;

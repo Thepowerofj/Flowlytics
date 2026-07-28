@@ -1,5 +1,6 @@
 "use client";
 
+import { asInsightLines } from "@/modules/analyse/domain/charts";
 import { parseInsightBullets } from "@/modules/analyse/domain/insights";
 import {
   formatDisplayValue,
@@ -10,8 +11,8 @@ type Props = {
   title?: string;
   /** Free-text AI / forecast explanation */
   explanation?: string;
-  /** Pre-split insight lines */
-  lines?: string[];
+  /** Pre-split insight lines (may arrive compacted as a plain string) */
+  lines?: string[] | string | unknown;
   compact?: boolean;
 };
 
@@ -22,8 +23,13 @@ export function InsightCard({
   lines,
   compact,
 }: Props) {
+  const fromLines = asInsightLines(lines, compact ? 4 : 6);
   const bullets =
-    lines?.length ? lines : explanation ? parseInsightBullets(explanation) : [];
+    fromLines.length > 0
+      ? fromLines
+      : explanation
+        ? parseInsightBullets(explanation)
+        : [];
   if (!bullets.length) {
     return (
       <div className={`insight-card ${compact ? "insight-card--compact" : ""}`}>

@@ -57,7 +57,7 @@ export const projectionBlock: BlockDefinition = {
       ? (compareRaw as string[])
       : typeof compareRaw === "string" && compareRaw
         ? compareRaw.split(",").map((s) => s.trim())
-        : [];
+        : undefined;
 
     const result = buildForecast(table, {
       column,
@@ -72,7 +72,9 @@ export const projectionBlock: BlockDefinition = {
       alpha: Number(config.alpha ?? 0.3),
       confidenceBand: config.confidenceBand !== false,
       periodOrder: (config.periodOrder as string) || "auto",
-      compareMethods,
+      // Empty config → auto leaderboard; explicit picks → those methods only
+      compareMethods:
+        compareMethods && compareMethods.length ? compareMethods : undefined,
       outputShape: config.outputShape === "wide" ? "wide" : "long",
     });
 

@@ -65,9 +65,13 @@ export function formatsForAggregate(
 /** Authoritative columns for a node config — prefer materialised preview table. */
 export function availableColumns(config: Record<string, unknown>): string[] {
   const table = config.table as TabularData | undefined;
-  if (table?.columns?.length) return [...table.columns];
+  if (Array.isArray(table?.columns) && table.columns.length) {
+    return table.columns.filter((c): c is string => typeof c === "string");
+  }
   if (Array.isArray(config._sourceColumns)) {
-    return [...(config._sourceColumns as string[])];
+    return (config._sourceColumns as unknown[]).filter(
+      (c): c is string => typeof c === "string",
+    );
   }
   return [];
 }

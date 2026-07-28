@@ -187,8 +187,10 @@ export function aggregateTable(
 }
 
 export function describeAggregate(config: AggregateConfig): string {
-  const groups = config.groupBy?.filter(Boolean) ?? [];
-  const metrics = config.metrics ?? [];
+  const groups = (
+    Array.isArray(config.groupBy) ? config.groupBy : []
+  ).filter(Boolean);
+  const metrics = Array.isArray(config.metrics) ? config.metrics : [];
   if (!groups.length && !metrics.length) return "Configure group & metrics";
   const g = groups.length ? `by ${groups.join(", ")}` : "totals";
   const m =

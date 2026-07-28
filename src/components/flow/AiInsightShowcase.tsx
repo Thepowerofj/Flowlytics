@@ -45,8 +45,10 @@ function FindingCard({ finding }: { finding: InsightFinding }) {
 
 /** Expanded canvas showcase for AI Analyse / Explain — styled like chart nodes. */
 export function AiInsightShowcase({ report, variant = "canvas" }: Props) {
-  const findings = report.findings.slice(0, 6);
-  const steps = report.nextSteps.slice(0, 4);
+  const findings = Array.isArray(report.findings) ? report.findings.slice(0, 6) : [];
+  const steps = Array.isArray(report.nextSteps)
+    ? report.nextSteps.filter((s): s is string => typeof s === "string").slice(0, 4)
+    : [];
 
   return (
     <div

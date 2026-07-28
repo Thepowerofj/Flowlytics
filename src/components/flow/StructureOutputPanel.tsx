@@ -47,11 +47,18 @@ function buildPreview(
   table: TabularData | null,
   maxRows: number,
 ): PreviewModel {
+  const safeColumns = Array.isArray(columns)
+    ? columns.filter((c): c is string => typeof c === "string")
+    : [];
+  const safeSelected = Array.isArray(selectedColumns)
+    ? selectedColumns.filter((c): c is string => typeof c === "string")
+    : [];
+  const tableCols = Array.isArray(table?.columns) ? table.columns : [];
   const headers =
-    selectedColumns.length > 0
-      ? selectedColumns.filter((c) => columns.includes(c) || table?.columns.includes(c))
-      : columns.length > 0
-        ? [...columns]
+    safeSelected.length > 0
+      ? safeSelected.filter((c) => safeColumns.includes(c) || tableCols.includes(c))
+      : safeColumns.length > 0
+        ? [...safeColumns]
         : [...EXAMPLE_HEADERS];
 
   if (headers.length === 0) {
@@ -67,7 +74,7 @@ function buildPreview(
     };
   }
 
-  if (table?.rows.length) {
+  if (table && Array.isArray(table.rows) && table.rows.length) {
     const projected = projectColumns(table, headers);
     if (projected.columns.length) {
       return {

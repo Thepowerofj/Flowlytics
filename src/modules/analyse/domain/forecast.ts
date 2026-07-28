@@ -610,7 +610,7 @@ export function buildForecast(
     alpha?: number;
     confidenceBand?: boolean;
     periodOrder?: PeriodOrder | string;
-    compareMethods?: ForecastMethod[] | string[];
+    compareMethods?: ForecastMethod[] | string[] | string;
     outputShape?: "long" | "wide";
   },
 ): ForecastResult {
@@ -658,10 +658,22 @@ export function buildForecast(
     confidenceBand: config.confidenceBand ?? method === "trend",
   };
 
-  const compareList = (config.compareMethods ?? [])
+  const explicitCompare = config.compareMethods;
+  const compareList: ForecastMethod[] = (
+    Array.isArray(explicitCompare)
+      ? explicitCompare
+      : typeof explicitCompare === "string" && explicitCompare.trim()
+        ? explicitCompare.split(",").map((s: string) => s.trim())
+        : []
+  )
     .map((m) => m as ForecastMethod)
     .filter((m) => FORECAST_METHOD_OPTIONS.some((o) => o.id === m));
-  const defaultCompare = diagnostics.eligibleMethods.filter((m) => m !== "ensemble");
+  // Undefined compareMethods → auto-score all eligible (runs / Ask trust).
+  // Explicit [] → only the selected method (canvas live preview).
+  const defaultCompare =
+    explicitCompare === undefined
+      ? diagnostics.eligibleMethods.filter((m) => m !== "ensemble")
+      : [];
   const uniqueCompare = [...new Set([method, ...compareList, ...defaultCompare])];
   const { compare, recommended } = compareForecastMethods(
     actual,

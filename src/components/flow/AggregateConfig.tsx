@@ -45,18 +45,20 @@ export function AggregateConfig({
   datasetName = "",
   onChange,
 }: Props) {
-  // Pickers always use input schema — never aggregated result columns
-  const inputColumns = columns.filter((c) =>
-    table ? table.columns.includes(c) : true,
+  const safeGroupBy = Array.isArray(groupBy)
+    ? groupBy.filter((c): c is string => typeof c === "string")
+    : [];
+  const inputColumns = (Array.isArray(columns) ? columns : []).filter((c) =>
+    table && Array.isArray(table.columns) ? table.columns.includes(c) : true,
   );
   const numeric = table ? numericColumns(table) : inputColumns;
   const safeMetrics =
-    metrics.length > 0
+    Array.isArray(metrics) && metrics.length > 0
       ? metrics
       : [{ column: numeric[0] ?? "", op: "sum" as const, as: "" }];
 
   function emit(patch: { groupBy?: string[]; metrics?: AggregateMetric[] }) {
-    const nextGroup = patch.groupBy ?? groupBy;
+    const nextGroup = patch.groupBy ?? safeGroupBy;
     const nextMetrics = patch.metrics ?? safeMetrics;
     onChange({
       ...patch,
@@ -97,16 +99,16 @@ export function AggregateConfig({
   }
 
   const previewCols = [
-    ...groupBy,
+    ...safeGroupBy,
     ...safeMetrics.map((m) => m.as?.trim() || defaultMetricAs(m.op, m.column)),
   ];
 
   // Read-only result preview — computed from input table, never used as picker source
   const resultPreview =
-    table && (groupBy.length || safeMetrics.length)
-      ? aggregateTable(table, { groupBy, metrics: safeMetrics })
+    table && (safeGroupBy.length || safeMetrics.length)
+      ? aggregateTable(table, { groupBy: safeGroupBy, metrics: safeMetrics })
       : null;
-  const outFormats = formatsForAggregate(inputFormats, groupBy, safeMetrics);
+  const outFormats = formatsForAggregate(inputFormats, safeGroupBy, safeMetrics);
 
   return (
     <div className="space-y-5">
@@ -128,7 +130,7 @@ export function AggregateConfig({
         </p>
         <div className="mt-2 flex flex-wrap gap-1.5">
           {inputColumns.map((col) => {
-            const checked = groupBy.includes(col);
+            const checked = safeGroupBy.includes(col);
             return (
               <label
                 key={col}
@@ -143,8 +145,8 @@ export function AggregateConfig({
                   className="accent-[var(--accent)]"
                   checked={checked}
                   onChange={(e) => {
-                    if (e.target.checked) setGroupBy([...groupBy, col]);
-                    else setGroupBy(groupBy.filter((c) => c !== col));
+                    if (e.target.checked) setGroupBy([...safeGroupBy, col]);
+                    else setGroupBy(safeGroupBy.filter((c) => c !== col));
                   }}
                 />
                 {col}

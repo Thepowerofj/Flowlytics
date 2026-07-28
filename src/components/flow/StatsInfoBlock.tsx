@@ -10,7 +10,7 @@ import { formatCount } from "@/shared/lib/formatUi";
 type Summary = {
   rows: number;
   columns: number;
-  highlights: string[];
+  highlights: string[] | string | unknown;
 };
 
 type Props = {
@@ -29,8 +29,14 @@ function fmtNum(
 
 /** Canvas information card for Stats Summary — metrics + plain-language insights. */
 export function StatsInfoBlock({ summary, stats, columnFormats = {} }: Props) {
-  const numeric = stats.filter((s) => s.kind === "numeric").length;
-  const categorical = stats.filter((s) => s.kind === "categorical").length;
+  const safeStats = Array.isArray(stats) ? stats : [];
+  const highlights = Array.isArray(summary.highlights)
+    ? summary.highlights.filter((h): h is string => typeof h === "string" && h.trim().length > 0)
+    : typeof summary.highlights === "string" && (summary.highlights as string).trim()
+      ? [(summary.highlights as string).trim()]
+      : [];
+  const numeric = safeStats.filter((s) => s.kind === "numeric").length;
+  const categorical = safeStats.filter((s) => s.kind === "categorical").length;
 
   return (
     <div className="info-block nodrag nopan">
@@ -55,9 +61,9 @@ export function StatsInfoBlock({ summary, stats, columnFormats = {} }: Props) {
 
       <div className="info-block__section">
         <p className="info-block__label">Key findings</p>
-        {summary.highlights.length ? (
+        {highlights.length ? (
           <ul className="info-block__insights">
-            {summary.highlights.slice(0, 5).map((h) => (
+            {highlights.slice(0, 5).map((h) => (
               <li key={h}>{h}</li>
             ))}
           </ul>
@@ -68,11 +74,11 @@ export function StatsInfoBlock({ summary, stats, columnFormats = {} }: Props) {
         )}
       </div>
 
-      {stats.length > 0 && (
+      {safeStats.length > 0 && (
         <div className="info-block__section">
           <p className="info-block__label">Field snapshot</p>
           <div className="info-block__fields">
-            {stats.slice(0, 4).map((s) => {
+            {safeStats.slice(0, 4).map((s) => {
               const fmt = columnFormats[s.column];
               return (
                 <div key={s.column} className="info-block__field">

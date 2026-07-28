@@ -10,7 +10,7 @@ Public repo: https://github.com/Thepowerofj/Flowlytics
 
 # Current slice
 
-Post-implementation verification and polish for Trusted Analytics Core.
+Builder canvas crash fix: harden activity nodes/config against compacted or corrupt meta (non-array insights/rows/metrics) so viewing activities cannot take down the editor.
 
 # Completed
 
@@ -29,36 +29,25 @@ Post-implementation verification and polish for Trusted Analytics Core.
 - **Analytics core:** dataset quality profiling, duplicate-period detection, transactional period aggregation before forecasts, table contracts, consistent primary measure/grain metadata, and safer CSV/table preview selection
 - **Forecast trust:** month/quarter/week/fiscal labels, readiness diagnostics, eligible method comparison, MAE/RMSE/sMAPE/bias metrics, horizon-widening intervals, scenarios, and Ask Forecast Trust panel
 - **Decision results:** richer Ask result metadata, forecast validation/caveat presentation slides, full-data CSV selection from analytical tables, and Builder output contract summaries
-- Tests: full Vitest suite passing (`npm test` — 46 files / 190 tests); typecheck clean (`npx tsc --noEmit`); production build passing (`npm run build`)
+- **Builder crash harden:** `tablePreview` requires array columns/rows; `InsightCard` / Stats / Aggregate / Structure / ActivityNode coerce compacted insights/metrics/rows; forecast canvas preview skips full method leaderboard (`compareMethods: []`); run path still auto-compares when compare list omitted
 
 # In progress
 
-- Trusted Analytics Core implementation complete; final full-suite/typecheck/build checkpoint passing
+- Verify Builder canvas no longer throws client-side when opening Forecast / Aggregate / Stats / Structure after runs with compacted meta
 
 # Next
 
-1. Run final full test/typecheck/build after this slice
-2. Add full Playwright golden paths for browser-level acceptance
-3. Production VPS deploy only with explicit approval
+1. Manual smoke: open Builder flows with Forecast + Aggregate + Stats after a full Run
+2. Keep Guided Ask as the primary path; treat Builder as advanced
+3. Ops: production deploy only with explicit approval
 
-# Decisions and assumptions
+# Blockers / risks
 
-- PayFast is the primary payment gateway; manual EFT is fallback only
-- Ask mode shares the canvas pipeline engine (not a separate agent)
-- Forecast stays pure-TS for this phase, with an adapter boundary for a future statistical service
-- URL ingest refreshes on every run (including schedules) and is restricted to safe HTTPS public targets
-- Soft upload limit default is **20MB** (`MAX_UPLOAD_BYTES=20971520`)
+- Legacy flows may still hold compacted string insights in node config until re-run; UI now degrades safely instead of crashing
+- Forecast method comparison remains CPU-heavy on large histories during full Run (by design for trust)
 
-# Known risks/blockers
+# Key decisions
 
-- PayFast ITN needs a publicly reachable `AUTH_URL` notify endpoint
-- Prisma generate can EPERM on Windows while Next holds the query engine DLL
-- SMTP host must resolve for live outbound email
-
-# Verification status
-
-- types: pass (`pnpm exec tsc --noEmit`)
-- tests: pass (`npm test` — 46 files / 190 tests)
-- typecheck: pass (`npx tsc --noEmit`)
-- build: pass (`npm run build`; existing non-blocking React hook dependency warnings remain)
-- deployment: local Docker Compose Postgres on **5433**; VPS not authorised
+- Guided Ask is the default product path; Advanced Builder remains for power users
+- AI uses BYOK only (no wallet gate for AI)
+- Builder must tolerate corrupt/compacted run meta without a white-screen crash

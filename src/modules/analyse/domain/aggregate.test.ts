@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest";
-import { aggregateTable } from "./aggregate";
+import { aggregateTable, describeAggregate } from "./aggregate";
 
 const sample = {
   columns: ["Region", "Product", "Sales"],
@@ -49,5 +49,22 @@ describe("aggregateTable", () => {
     const north = out.rows.find((r) => r.Region === "North")?.Share as number;
     const south = out.rows.find((r) => r.Region === "South")?.Share as number;
     expect(north + south).toBeCloseTo(100, 1);
+  });
+});
+
+describe("describeAggregate", () => {
+  it("does not throw when metrics/groupBy are compacted non-arrays", () => {
+    expect(
+      describeAggregate({
+        groupBy: "Region" as unknown as string[],
+        metrics: "sum(Sales)" as unknown as [],
+      }),
+    ).toMatch(/Configure|count|totals/i);
+    expect(
+      describeAggregate({
+        groupBy: ["Region"],
+        metrics: [{ column: "Sales", op: "sum", as: "Total" }],
+      }),
+    ).toContain("sum(Sales)");
   });
 });

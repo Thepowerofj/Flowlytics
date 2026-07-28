@@ -184,4 +184,52 @@ describe("forecast", () => {
     );
     expect(week.actual).toEqual([10, 20, 30]);
   });
+
+  it("tolerates compareMethods stored as a comma string", () => {
+    const result = buildForecast(
+      {
+        columns: ["Month", "Sales"],
+        rows: [
+          { Month: "2024-01", Sales: 10 },
+          { Month: "2024-02", Sales: 12 },
+          { Month: "2024-03", Sales: 14 },
+          { Month: "2024-04", Sales: 16 },
+        ],
+      },
+      {
+        column: "Sales",
+        periodColumn: "Month",
+        periods: 1,
+        method: "trend",
+        compareMethods: "trend,naive" as unknown as string[],
+      },
+    );
+    expect(result.points.length).toBeGreaterThan(0);
+    expect(result.compare?.every((c) => typeof c.method === "string")).toBe(true);
+  });
+
+  it("skips full leaderboard when compareMethods is an empty array", () => {
+    const result = buildForecast(
+      {
+        columns: ["Month", "Sales"],
+        rows: [
+          { Month: "2024-01", Sales: 10 },
+          { Month: "2024-02", Sales: 12 },
+          { Month: "2024-03", Sales: 14 },
+          { Month: "2024-04", Sales: 16 },
+          { Month: "2024-05", Sales: 18 },
+          { Month: "2024-06", Sales: 20 },
+        ],
+      },
+      {
+        column: "Sales",
+        periodColumn: "Month",
+        periods: 1,
+        method: "trend",
+        compareMethods: [],
+      },
+    );
+    expect(result.compare?.length).toBe(1);
+    expect(result.compare?.[0]?.method).toBe("trend");
+  });
 });

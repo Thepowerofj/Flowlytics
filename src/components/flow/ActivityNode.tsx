@@ -6,7 +6,13 @@ import {
   describeAggregate,
   type AggregateMetric,
 } from "@/modules/analyse/domain/aggregate";
-import { buildChartSpec, summarizeForNode, type ChartSpec } from "@/modules/analyse/domain/charts";
+import {
+  asInsightLines,
+  buildChartSpec,
+  normalizeChartSpec,
+  summarizeForNode,
+  type ChartSpec,
+} from "@/modules/analyse/domain/charts";
 import {
   buildForecast,
   type ForecastMethod,
@@ -32,6 +38,19 @@ import { AiInsightShowcase } from "./AiInsightShowcase";
 import { ForecastKpiStrip } from "./InsightCard";
 import { StatsInfoBlock } from "./StatsInfoBlock";
 import { StructureOutputPanel } from "./StructureOutputPanel";
+
+function asStringList(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.filter((v): v is string => typeof v === "string");
+  }
+  if (typeof value === "string" && value.trim()) {
+    return value
+      .split(/[\n,]+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+  }
+  return [];
+}
 
 function columnFormatsOf(
   config: Record<string, unknown>,
@@ -86,7 +105,7 @@ function categoryOf(type: string) {
 
 function summaryFor(data: ActivityNodeData): string {
   const table = tablePreview(data.config);
-  const cols = table?.columns ?? (data.config._sourceColumns as string[]) ?? [];
+  const cols = table?.columns ?? asStringList(data.config._sourceColumns);
 
   if (data.blockType === "ingest.csv_excel") {
     if (data.config.uploadError) return "Upload issue — open for details";
@@ -102,20 +121,22 @@ function summaryFor(data: ActivityNodeData): string {
   }
   if (data.blockType === "transform.clean_map") {
     if (!cols.length) return "Wire an ingest · then clean & map";
-    const dropped = ((data.config.dropColumns as string[]) ?? []).length;
+    const dropped = asStringList(data.config.dropColumns).length;
     return `${cols.length - dropped} columns out · clean & types`;
   }
   if (data.blockType === "transform.aggregate") {
     if (!cols.length) return "Wire upstream · then group & sum";
     return describeAggregate({
-      groupBy: (data.config.groupBy as string[]) ?? [],
-      metrics: (data.config.metrics as AggregateMetric[]) ?? [],
+      groupBy: asStringList(data.config.groupBy),
+      metrics: Array.isArray(data.config.metrics)
+        ? (data.config.metrics as AggregateMetric[])
+        : [],
     });
   }
   if (data.blockType === "output.structure") {
     if (!cols.length) return "Wire upstream · then choose export columns";
-    const selected = (data.config.selectedColumns as string[]) ?? cols;
-    return `${selected.length} columns for export`;
+    const selected = asStringList(data.config.selectedColumns);
+    return `${(selected.length ? selected : cols).length} columns for export`;
   }
   if (data.blockType === "analyse.projection") {
     const col = (data.config.column as string) || "";
@@ -154,7 +175,10 @@ function summaryFor(data: ActivityNodeData): string {
           : `Schema: ${preview}${names.length > 3 ? "…" : ""} · enable AI`;
       }
     }
-    if (data.config.explanation || (Array.isArray(data.config.insights) && data.config.insights.length)) {
+    if (
+      data.config.explanation ||
+      asInsightLines(data.config.insights, 1).length > 0
+    ) {
       return "Insights ready · open for full read-out";
     }
     return data.config.aiOptIn ? "AI ready · Run for insights" : "Open to enable AI";
@@ -191,56 +215,78 @@ export function ActivityNode({
     resolveValueFormat(formats, measureCol) ??
     ({ kind: "number", useGrouping: true } as const);
 
-  if (data.blockType === "analyse.chart" && table) {
-    const runChart = data.config._runChart as ChartSpec | undefined;
-    chartPreview =
-      runChart?.points?.length
-        ? { ...runChart, valueFormat: runChart.valueFormat ?? formats[String(data.config.yColumn ?? "")] }
-        : buildChartSpec(table, {
-            chartType: data.config.chartType as "bar" | "line" | "pie" | undefined,
-            xColumn: (data.config.xColumn as string) || undefined,
-            yColumn: (data.config.yColumn as string) || undefined,
-            suggestionId: (data.config.suggestionId as string) || undefined,
-            columnFormats: formats,
-          });
-  } else if (data.blockType === "analyse.projection" && table) {
-    const runChart = data.config._runChart as ChartSpec | undefined;
-    const runOut = data.config._runOutputTable as
-      | { columns: string[]; rows: Record<string, string | number | null>[] }
-      | undefined;
-    const runProj = data.config._runProjection as
-      | { kpis?: { lastActual: number | null; nextForecast: number | null; changePct: number | null } }
-      | undefined;
-    if (runProj?.kpis) forecastKpis = runProj.kpis;
+  try {
+    if (data.blockType === "analyse.chart" && table) {
+      const runChart = normalizeChartSpec(data.config._runChart);
+      chartPreview =
+        runChart ??
+        buildChartSpec(table, {
+          chartType: data.config.chartType as "bar" | "line" | "pie" | undefined,
+          xColumn: (data.config.xColumn as string) || undefined,
+          yColumn: (data.config.yColumn as string) || undefined,
+          suggestionId: (data.config.suggestionId as string) || undefined,
+          columnFormats: formats,
+        });
+      if (chartPreview && !chartPreview.valueFormat) {
+        chartPreview = {
+          ...chartPreview,
+          valueFormat: formats[String(data.config.yColumn ?? "")],
+        };
+      }
+    } else if (data.blockType === "analyse.projection" && table) {
+      const runChart = normalizeChartSpec(data.config._runChart);
+      const runOut = data.config._runOutputTable as
+        | { columns?: unknown; rows?: unknown }
+        | undefined;
+      const runProj = data.config._runProjection as
+        | {
+            kpis?: {
+              lastActual: number | null;
+              nextForecast: number | null;
+              changePct: number | null;
+            };
+          }
+        | undefined;
+      if (runProj?.kpis) forecastKpis = runProj.kpis;
 
-    if (runChart?.points?.length) {
-      chartPreview = {
-        ...runChart,
-        valueFormat: runChart.valueFormat ?? forecastFormat,
-      };
-    } else if (runOut?.columns?.includes("series") && runOut.columns.includes("value")) {
-      const col = measureCol || "value";
-      chartPreview = {
-        type: "line",
-        title: `Forecast · ${col}`,
-        xLabel: "Period",
-        yLabel: col,
-        forecastSplit: true,
-        valueFormat: forecastFormat,
-        points: runOut.rows.map((r) => ({
-          x: String(r.period ?? ""),
-          y: Number(r.value) || 0,
-          series: (r.series === "Forecast" ? "Forecast" : "Actual") as
-            | "Actual"
-            | "Forecast",
-          low: r.low == null ? null : Number(r.low),
-          high: r.high == null ? null : Number(r.high),
-        })),
-      };
-    } else {
-      const col = measureCol;
-      if (col) {
-        try {
+      if (runChart) {
+        chartPreview = {
+          ...runChart,
+          valueFormat: runChart.valueFormat ?? forecastFormat,
+        };
+      } else if (
+        Array.isArray(runOut?.columns) &&
+        Array.isArray(runOut.rows) &&
+        runOut.columns.includes("series") &&
+        runOut.columns.includes("value")
+      ) {
+        const col = measureCol || "value";
+        chartPreview = {
+          type: "line",
+          title: `Forecast · ${col}`,
+          xLabel: "Period",
+          yLabel: col,
+          forecastSplit: true,
+          valueFormat: forecastFormat,
+          points: runOut.rows.map((r) => {
+            const row = (r && typeof r === "object" ? r : {}) as Record<
+              string,
+              unknown
+            >;
+            return {
+              x: String(row.period ?? ""),
+              y: Number(row.value) || 0,
+              series: (row.series === "Forecast" ? "Forecast" : "Actual") as
+                | "Actual"
+                | "Forecast",
+              low: row.low == null ? null : Number(row.low),
+              high: row.high == null ? null : Number(row.high),
+            };
+          }),
+        };
+      } else {
+        const col = measureCol;
+        if (col) {
           const result = buildForecast(table, {
             column: col,
             periodColumn: (data.config.periodColumn as string) || undefined,
@@ -253,9 +299,14 @@ export function ActivityNode({
             seasonLength: Number(data.config.seasonLength ?? 12),
             alpha: Number(data.config.alpha ?? 0.3),
             confidenceBand: data.config.confidenceBand !== false,
+            // Canvas preview: skip full leaderboard — keep paint fast/safe
+            compareMethods: [],
           });
           if (result.actual.length >= 2) {
-            const { insights, kpis } = buildForecastInsights(result, forecastFormat);
+            const { insights, kpis } = buildForecastInsights(
+              result,
+              forecastFormat,
+            );
             forecastKpis = kpis;
             chartPreview = {
               type: "line",
@@ -274,14 +325,17 @@ export function ActivityNode({
               })),
             };
           }
-        } catch {
-          chartPreview = null;
         }
       }
     }
+  } catch {
+    chartPreview = null;
   }
 
-  const isChartShowcase = Boolean(chartPreview?.points.length);
+  // Only showcase when points are a real array (compacted string must not win)
+  const isChartShowcase = Boolean(
+    chartPreview && Array.isArray(chartPreview.points) && chartPreview.points.length,
+  );
   const isStatsBlock = data.blockType === "analyse.stats" && Boolean(table);
   const aiReport =
     data.blockType === "ai.analyse" || data.blockType === "ai.explain"
@@ -290,26 +344,39 @@ export function ActivityNode({
   const isAiInsight = Boolean(aiReport);
   const isStructure = data.blockType === "output.structure";
   const isForecast = data.blockType === "analyse.projection";
-  const runStats = data.config._runStats as ColumnStats[] | undefined;
-  const columnStats =
-    isStatsBlock && table
-      ? runStats?.length
-        ? runStats
-        : computeStats(table)
-      : [];
-  const statsSummary =
-    isStatsBlock && table
-      ? Array.isArray(data.config.insights) && data.config.insights.length
+  const runStats = Array.isArray(data.config._runStats)
+    ? (data.config._runStats as ColumnStats[])
+    : undefined;
+  let columnStats: ColumnStats[] = [];
+  let statsSummary: {
+    rows: number;
+    columns: number;
+    highlights: string[];
+  } | null = null;
+  if (isStatsBlock && table) {
+    try {
+      columnStats = runStats?.length ? runStats : computeStats(table);
+      const highlights = asInsightLines(data.config.insights, 5);
+      statsSummary = highlights.length
         ? {
             rows: table.rows.length,
             columns: table.columns.length,
-            highlights: data.config.insights as string[],
+            highlights,
           }
-        : summarizeForNode(table, formats)
-      : null;
-  const structureCols = table?.columns ?? (data.config._sourceColumns as string[]) ?? [];
+        : summarizeForNode(table, formats);
+    } catch {
+      columnStats = [];
+      statsSummary = {
+        rows: table.rows.length,
+        columns: table.columns.length,
+        highlights: [],
+      };
+    }
+  }
+  const structureCols = table?.columns ?? asStringList(data.config._sourceColumns);
+  const selectedStructure = asStringList(data.config.selectedColumns);
   const structureSelected = (
-    (data.config.selectedColumns as string[]) ?? structureCols
+    selectedStructure.length ? selectedStructure : structureCols
   ).filter((c) => structureCols.includes(c));
 
   const resizable = isChartShowcase || isStatsBlock || isAiInsight;
