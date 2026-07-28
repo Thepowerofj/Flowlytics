@@ -16,6 +16,27 @@ describe("buildPresentationModel", () => {
         f1: {
           projection: {
             column: "Sales",
+            method: "trend",
+            recommendedMethod: "moving_average",
+            intervalMethod: "Historical residual envelope.",
+            diagnostics: {
+              warnings: ["Short history"],
+              readiness: "limited",
+              frequency: "monthly",
+            },
+            leaderboard: [
+              {
+                method: "trend",
+                backtest: { mae: 10, rmse: 12, smape: 8, bias: 2 },
+              },
+            ],
+            scenarios: [
+              {
+                name: "upside",
+                assumption: "Gradually improves",
+                forecast: [110, 120],
+              },
+            ],
             kpis: { lastActual: 100, nextForecast: 110, changePct: 10 },
           },
           table: {
@@ -31,6 +52,16 @@ describe("buildPresentationModel", () => {
     expect(model.slides.some((s) => s.kind === "bullets")).toBe(true);
     expect(model.slides.some((s) => s.kind === "table")).toBe(true);
     expect(model.slides.some((s) => s.kind === "closing")).toBe(true);
+    expect(
+      model.slides.some(
+        (s) => s.kind === "table" && /validation/i.test(s.title),
+      ),
+    ).toBe(true);
+    expect(
+      model.slides.some(
+        (s) => s.kind === "bullets" && /caveats/i.test(s.title),
+      ),
+    ).toBe(true);
     const actions = model.slides.find(
       (s) => s.kind === "bullets" && s.tone === "actions",
     );

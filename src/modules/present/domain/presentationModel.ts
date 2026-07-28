@@ -74,7 +74,15 @@ export function buildPresentationModel(
 
   const findings: string[] = [];
   const actions: string[] = [];
+  const caveats: string[] = [];
   const kpis: { label: string; value: string; hint?: string }[] = [];
+  let forecastTable:
+    | {
+        columns: string[];
+        rows: string[][];
+      }
+    | null = null;
+  let scenarioBullets: string[] = [];
   let headline = "";
   let summary = "";
 
@@ -103,6 +111,15 @@ export function buildPresentationModel(
     const projection = out.projection as
       | {
           column?: string;
+          method?: string;
+          recommendedMethod?: string;
+          intervalMethod?: string;
+          diagnostics?: { warnings?: string[]; frequency?: string; readiness?: string };
+          leaderboard?: {
+            method?: string;
+            backtest?: { mae?: number; rmse?: number; smape?: number | null; bias?: number };
+          }[];
+          scenarios?: { name?: string; assumption?: string; forecast?: number[] }[];
           kpis?: {
             lastActual?: number;
             nextForecast?: number;
@@ -134,6 +151,35 @@ export function buildPresentationModel(
         });
       }
     }
+    if (projection?.leaderboard?.length && !forecastTable) {
+      forecastTable = {
+        columns: ["Model", "MAE", "RMSE", "sMAPE", "Bias"],
+        rows: projection.leaderboard.slice(0, 6).map((row) => [
+          row.method ?? "",
+          row.backtest?.mae != null ? formatNum(row.backtest.mae) : "",
+          row.backtest?.rmse != null ? formatNum(row.backtest.rmse) : "",
+          row.backtest?.smape != null ? `${formatNum(row.backtest.smape)}%` : "",
+          row.backtest?.bias != null ? formatNum(row.backtest.bias) : "",
+        ]),
+      };
+    }
+    if (projection?.intervalMethod) caveats.push(projection.intervalMethod);
+    for (const warning of projection?.diagnostics?.warnings ?? []) {
+      caveats.push(warning);
+    }
+    if (projection?.scenarios?.length && !scenarioBullets.length) {
+      scenarioBullets = projection.scenarios.map((s) => {
+        const last = s.forecast?.[s.forecast.length - 1];
+        return `${s.name ?? "scenario"}: ${s.assumption ?? "assumption"}${
+          last != null ? `; horizon value ${formatNum(last)}` : ""
+        }`;
+      });
+    }
+
+    const contract = out.contract as
+      | { warnings?: string[]; rowCount?: number; grain?: string; primaryMeasure?: string }
+      | undefined;
+    for (const warning of contract?.warnings ?? []) caveats.push(warning);
 
     if (typeof out.explanation === "string" && out.explanation.trim()) {
       for (const line of out.explanation.split("\n").filter(Boolean).slice(0, 3)) {
@@ -168,6 +214,25 @@ export function buildPresentationModel(
     });
   }
 
+  if (forecastTable) {
+    slides.push({
+      kind: "table",
+      title: "Forecast validation leaderboard",
+      caption: "Lower error is better; model choice prefers simpler methods within tolerance.",
+      columns: forecastTable.columns,
+      rows: forecastTable.rows,
+    });
+  }
+
+  if (scenarioBullets.length) {
+    slides.push({
+      kind: "bullets",
+      title: "Forecast scenarios",
+      tone: "findings",
+      bullets: scenarioBullets.slice(0, 4),
+    });
+  }
+
   const uniqueFindings = uniqueStrings(findings).slice(0, 8);
   slides.push({
     kind: "bullets",
@@ -185,6 +250,16 @@ export function buildPresentationModel(
       title: "Recommended next moves",
       tone: "actions",
       bullets: uniqueActions,
+    });
+  }
+
+  const uniqueCaveats = uniqueStrings(caveats).slice(0, 6);
+  if (uniqueCaveats.length) {
+    slides.push({
+      kind: "bullets",
+      title: "Trust notes and caveats",
+      tone: "findings",
+      bullets: uniqueCaveats,
     });
   }
 

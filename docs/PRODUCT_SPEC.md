@@ -2,17 +2,17 @@
 
 Status: Approved for BUILD  
 Version: 1.0  
-Date: 2026-07-20
+Date: 2026-07-28
 
 ## 1. Vision
 
-Flowlytics helps small-business owners turn spreadsheets into insights by composing drag-and-drop activity blocks on a visual canvas, running them on a capacity-aware backend queue. Product access is granted after manual EFT and admin activation (fixed-day window). Optional AI steps use the user’s own LLM API key (BYOK); a wallet ledger remains for a future PAYG option.
+Flowlytics helps small-business owners turn spreadsheets into trustworthy analysis through Guided Ask, with the visual Builder retained as the advanced pipeline workspace. Product access is granted after PayFast or manual EFT activation. Optional AI interpretation uses the user’s own LLM API key (BYOK); deterministic profiling, cleaning, stats, forecasts, and exports remain authoritative.
 
 ## 2. Problem and outcome
 
 **Problem:** Non-technical SMB owners struggle to clean, analyse, and explain sales/ops spreadsheet data without hiring analysts or learning notebooks.
 
-**Outcome:** A novice can upload CSV/Excel, connect a short flow, run it (now or on a schedule), see stats/charts, structure output, optionally use AI, and download CSV—without code.
+**Outcome:** A novice can upload CSV/Excel in Guided Ask, answer a few relevant questions, review the analysis plan, run it, see data-quality caveats, stats/charts/forecasts, optionally use AI explanations, export full data/report packs, and open the same pipeline in Builder—without code.
 
 ## 3. Users and buyer
 
@@ -33,7 +33,7 @@ Buyer for v1: the operator (self-hosted / manually monetised).
 
 ## 5. Primary journeys
 
-1. Sign up (email or Google) → **Billing** (PayFast or EFT) → access granted → Home / Ask → create or chat-build a flow.
+1. Sign up (email or Google) → **Billing** (PayFast or EFT) → access granted → Home → **Analyse a spreadsheet** in Guided Ask.
 2. Add ingest → open configure window → upload CSV/Excel (sheet + optional A1 range for Excel; clear errors if too large/invalid) → wire to Clean/Map (and optionally Aggregate) → Stats/Chart → Structure → **Run** → view full-dataset results → download CSV.
 3. Schedule from the flow toolbar or `/schedules` (pick any existing pipeline; daily/weekly/custom) → see queued/running status on canvas + calendar.
 4. Open Run history → inspect a historic snapshot (read-only) → Back to live.
@@ -47,7 +47,7 @@ Buyer for v1: the operator (self-hosted / manually monetised).
 | CAP-01 | Email + Google auth | User signs in with email/password or Google; branded transactional email for welcome, password reset, EFT/access, and pipeline failures |
 | CAP-01b | Password reset | Forgot-password email with 1-hour link; password-changed confirmation |
 | CAP-02 | Private flows | User A cannot read User B flow or files; owner can delete a flow from home (cascades runs & schedules) |
-| CAP-02b | Auto pipeline from data | Compact home CTA / empty-canvas action opens a modal: user sets analysis goal, confirms file or notes, then builds (no auto-build on file pick). Creates a wired analysis flow (Clean → Stats → Chart → Forecast when time-like / Aggregate when categorical → AI Analyse → Export); Clean/Map is seeded with inferred casts (date/currency/number/boolean); layout uses shared Auto align spacing; goal steers path; AI blocks opt-in for Run. Saved flows remain the home primary focus. |
+| CAP-02b | Auto pipeline from data | Guided Ask is the primary simple path from Home. Users upload/drop CSV/Excel, optionally select Excel sheet/range, acknowledge PII if detected, choose whether AI may interpret results, answer clarify questions, then click Go ahead. Builder creation remains the secondary advanced path. |
 | CAP-03b | Auto align | Canvas toolbar Auto align spaces activities left-to-right by DAG rank without overlap; auto-pipeline and quick recipes reuse the same layout |
 | CAP-03 | Canvas graph | Compact activity nodes; connect via handles; save/load |
 | CAP-04 | Ingest configure window | Open ingest to upload/drop CSV/Excel; preview table; no input handle on ingest |
@@ -56,7 +56,7 @@ Buyer for v1: the operator (self-hosted / manually monetised).
 | CAP-06b | Aggregate | Group by one or more columns; sum/avg/count/count distinct/min/max/% of total; read-only result preview (pickers always use upstream input); aggregated table offered to wired downstream; metric formats inherit currency/number styling |
 | CAP-06c | Upstream source picker | Chart/Stats/Forecast/Structure/AI can pick any ancestor table; Clean/Map, Aggregate, and AI steps can set a **dataset name** shown in the picker and on the canvas; changing source rewires the single In-edge |
 | CAP-07 | PII warning + disclaimer | Heuristic hits show warning + proceed; disclaimer visible |
-| CAP-08 | Stats + chart | Stats info block (mean/median/stddev/quartiles/null% + **business key findings**); chart bar/line/pie with suggestions (time-series preferred when a date exists); resizable showcase; stable tooltips; chart/insight truncation notices; currency/number formats carry through; quiet ≈ sample marker (tooltip) on preview; after Run, full-dataset outputs applied; can chart Aggregate or Forecast tables |
+| CAP-08 | Stats + chart | Dataset quality profile (nulls, duplicate rows/periods, grain, warnings) plus Stats info block (mean/median/stddev/quartiles/null% + **business key findings**); chart bar/line/pie with suggestions (time-series preferred when a date exists); resizable showcase; stable tooltips; chart/insight truncation notices; currency/number formats carry through; quiet ≈ sample marker (tooltip) on preview; after Run, full-dataset outputs and contracts applied; can chart Aggregate or Forecast tables |
 | CAP-09 | Structure output | User chooses columns/order + filename; always shows a visual CSV preview (example layout until data is wired, then live sample rows); explained save path (flow config + run `resultJson`) |
 | CAP-10 | CSV download | Download from Structure, Forecast config, or Results; Results can pick any step table via `resultJson.byBlockId` |
 | CAP-11 | Manual run + queue | Run from canvas or home (last saved graph); worker executes in the background if you leave; home shows last-run status; canvas resumes live progress for in-flight runs; queue position/ETA when busy; run log + right-rail history; historic snapshot replay (read-only) with Back to live |
@@ -65,13 +65,13 @@ Buyer for v1: the operator (self-hosted / manually monetised).
 | CAP-14 | AI structure (opt-in) | Takes wired upstream table and/or pasted notes → table; empty column builder lets AI invent then auto-fills the builder with typed suggestions; builder/templates lock the schema for the next Run; schema usable downstream before Run; BYOK in Settings |
 | CAP-15 | AI explain (opt-in) | Structured explanation report (headline, findings, next steps); **expanded styled showcase** on canvas after Run; Out table is structured findings for downstream; BYOK |
 | CAP-15b | AI analyse + chart suggest (opt-in) | Structured JSON insight report + findings table; optional **user question** + answer style (exec/bullets/actions); expanded showcase; deterministic pre-findings; chart-suggest; BYOK |
-| CAP-16 | Forecast playground | Trend, moving average, naive, seasonal, smooth, growth, **ensemble**; **period/x-axis order** (auto chronological); method **compare + holdout MAE**; goal prompt; long/wide output; KPI strip + band; downloadable series |
+| CAP-16 | Forecast playground | Trend, moving average, naive, seasonal, smooth, growth, **ensemble**; month/quarter/week/fiscal label parsing; duplicate-period aggregation; readiness diagnostics; eligible-method leaderboard with MAE/RMSE/sMAPE/bias; simple-method recommendation tolerance; horizon-widening historical-error intervals; base/upside/downside scenarios; Forecast Trust panel; goal prompt; long/wide output; KPI strip + downloadable series |
 | CAP-17 | Access + PayFast | **PayFast** checkout primary (ITN auto-activates N days); manual EFT fallback + admin activate; `FL-XXXXXX` refs; worker expires access; wallet ledger retained (not for AI) |
 | CAP-18 | Admin commercial | Activate/disable; payment-ref lookup; see EFT declarations + PayFast payments; optional wallet credit |
 | CAP-19 | Ops monitoring | Queue depth, active runs, worker status, per-user usage |
 | CAP-20 | Extensible blocks | New block registers via block registry port |
-| CAP-21 | Ask mode | Chat surface (`/ask`) builds/runs the same pipeline engine; attach CSV/Excel; quick dataset scan + clarifying questions before first build; follow-ups reuse/revise/re-run; forecast measures exclude IDs; forecast charts (teal + orange); styled chat + rich results; Open in Builder |
-| CAP-22 | Presentation export | Polished PDF + PowerPoint insight packs (cover, KPIs, findings, actions, evidence table, closing) from run results; Results download + `output.presentation` activity |
+| CAP-21 | Ask mode | Chat surface (`/ask`) builds/runs the same pipeline engine; drag/drop CSV/Excel; Excel sheet/range selection; PII acknowledgement before run; explicit AI opt-in; quick dataset scan + clarifying questions before first build; no run until Go ahead; polling cancels on thread switch; follow-ups reuse/revise/re-run; forecast measures exclude IDs; forecast charts (teal + orange); styled chat + rich results; Open in Builder |
+| CAP-22 | Presentation export | Polished PDF + PowerPoint insight packs (cover, KPIs, findings, forecast validation leaderboard, scenarios, caveats, actions, evidence table, closing) from run results; Results download + `output.presentation` activity |
 | CAP-23 | External connectors | `ingest.url` (HTTPS CSV/Excel refresh on run/schedule); `output.email` (SMTP summary); secrets never in client graph |
 
 ## 7. Scope
@@ -93,7 +93,7 @@ Buyer for v1: the operator (self-hosted / manually monetised).
 - TLS in transit (Caddy on VPS); DB credentials via env.
 - Disclaimer: operator not responsible for personal data users choose to upload.
 - Best-effort PII heuristics (email, phone, SA ID-like); warn + proceed; not a guarantee.
-- LLM only on opt-in AI blocks with user BYOK (encrypted at rest with `AUTH_SECRET`).
+- LLM only on explicit user opt-in with user BYOK (encrypted at rest with `AUTH_SECRET`); PII findings require acknowledgement and are never auto-acknowledged by Ask or auto-heal.
 
 ## 10. Commercial
 

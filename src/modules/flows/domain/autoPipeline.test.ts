@@ -71,6 +71,37 @@ describe("autoPipeline", () => {
     expect(forecast?.config?.periods).toBe(3);
   });
 
+  it("aggregates duplicate periods before forecasting transactional rows", () => {
+    const plan = planAutoPipeline({
+      table: {
+        columns: ["Date", "Region", "Revenue"],
+        rows: [
+          { Date: "2025-01-01", Region: "North", Revenue: 100 },
+          { Date: "2025-01-01", Region: "South", Revenue: 120 },
+          { Date: "2025-01-02", Region: "North", Revenue: 90 },
+          { Date: "2025-01-03", Region: "South", Revenue: 130 },
+        ],
+      },
+      goal: "Forecast revenue for the next 3 months",
+      enableAi: false,
+    });
+
+    const types = plan.steps.map((s) => s.type);
+    expect(types).toEqual([
+      "ingest.csv_excel",
+      "transform.clean_map",
+      "transform.aggregate",
+      "analyse.stats",
+      "analyse.projection",
+      "output.structure",
+    ]);
+    const aggregate = plan.steps.find((s) => s.type === "transform.aggregate");
+    expect(aggregate?.label).toBe("Aggregate by Period");
+    expect(aggregate?.config?.groupBy).toEqual(["Date"]);
+    const output = plan.steps.find((s) => s.type === "output.structure");
+    expect(output?.config?.selectedColumns).toBeUndefined();
+  });
+
   it("reuses prior steps in rationale when updating", () => {
     const plan = planAutoPipeline({
       table: {
@@ -167,6 +198,8 @@ describe("autoPipeline", () => {
             excelSheet: "January",
             excelRange: "A1:D20",
             sheetNames: ["January", "February"],
+            piiFindings: [{ column: "Email", kind: "email" }],
+            piiAcknowledged: true,
           },
         },
       ],
@@ -177,5 +210,7 @@ describe("autoPipeline", () => {
     expect(seed?.table).toBeUndefined();
     expect(seed?.excelSheet).toBe("January");
     expect(seed?.excelRange).toBe("A1:D20");
+    expect(seed?.piiFindings).toHaveLength(1);
+    expect(seed?.piiAcknowledged).toBe(true);
   });
 });

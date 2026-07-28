@@ -99,6 +99,7 @@ function extractAskArtifacts(resultJson: unknown): {
   tablePreview: AskTablePreview | null;
   exports: { csv: boolean; presentation: boolean };
   steps: string[];
+  forecastTrust?: Record<string, unknown>;
 } {
   if (!resultJson || typeof resultJson !== "object") {
     return {
@@ -113,8 +114,10 @@ function extractAskArtifacts(resultJson: unknown): {
   const parts: string[] = [];
   const charts: ChartSpec[] = [];
   let table: TabularData | null = null;
+  const tableCandidates: { table: TabularData; score: number }[] = [];
   let hasPresentation = false;
   const steps: string[] = [];
+  let forecastTrust: Record<string, unknown> | undefined;
 
   if (typeof r.explanation === "string" && r.explanation.trim()) {
     parts.push(r.explanation.trim().slice(0, 1600));
@@ -140,16 +143,45 @@ function extractAskArtifacts(resultJson: unknown): {
       } else if (typeof out.explanation === "string" && out.explanation.trim()) {
         parts.push(out.explanation.trim().slice(0, 700));
       }
+      const projection = out.projection as Record<string, unknown> | undefined;
+      if (projection?.diagnostics || projection?.leaderboard) {
+        forecastTrust = {
+          method: projection.method,
+          recommendedMethod: projection.recommendedMethod,
+          selectedModelReason: projection.selectedModelReason,
+          diagnostics: projection.diagnostics,
+          leaderboard: projection.leaderboard,
+          backtest: projection.backtest,
+          intervalMethod: projection.intervalMethod,
+          scenarios: projection.scenarios,
+        };
+      }
       {
         const chart = normalizeChartSpec(out.chart);
         if (chart) collectedCharts.push(chart);
       }
-      // Prefer projection/history tables over AI insight tables for CSV preview
       const t = out.table as TabularData | undefined;
       if (t?.columns?.length && t.rows) {
         const looksLikeForecast =
           t.columns.includes("series") || t.columns.includes("forecast");
-        if (!table || looksLikeForecast) table = t;
+        const contract = out.contract as
+          | {
+              kind?: string;
+              transformations?: unknown[];
+              grain?: string;
+            }
+          | undefined;
+        const isAiFindings = Boolean(out.insightReport);
+        tableCandidates.push({
+          table: t,
+          score:
+            (looksLikeForecast ? 60 : 0) +
+            (Array.isArray(contract?.transformations) ? 40 : 0) +
+            (contract?.kind === "table" ? 30 : 0) +
+            (contract?.grain ? 15 : 0) +
+            (isAiFindings ? -80 : 10) +
+            tableCandidates.length,
+        });
       }
       if (out.presentation) hasPresentation = true;
     }
@@ -171,8 +203,11 @@ function extractAskArtifacts(resultJson: unknown): {
   charts.push(...collectedCharts.slice(0, 3));
   if (!table) {
     const top = r.table as TabularData | undefined;
-    if (top?.columns?.length) table = top;
+    if (top?.columns?.length) {
+      tableCandidates.push({ table: top, score: 0 });
+    }
   }
+  table = tableCandidates.sort((a, b) => b.score - a.score)[0]?.table ?? null;
   if (r.presentation) hasPresentation = true;
 
   if (!parts.length) {
@@ -207,6 +242,7 @@ function extractAskArtifacts(resultJson: unknown): {
         hasPresentation || Boolean(charts.length || parts.length || table),
     },
     steps,
+    forecastTrust,
   };
 }
 
@@ -278,6 +314,10 @@ export async function askTurn(input: {
   table?: TabularData;
   fileId?: string;
   fileName?: string;
+  excelSheet?: string | null;
+  excelRange?: string | null;
+  piiFindings?: unknown[];
+  piiAcknowledged?: boolean;
   enableAi?: boolean;
   /** Skip clarify and build immediately */
   forceBuild?: boolean;
@@ -300,6 +340,10 @@ export async function askTurn(input: {
           ? toJsonValueSafe({
               fileId: input.fileId,
               fileName: input.fileName,
+              excelSheet: input.excelSheet,
+              excelRange: input.excelRange,
+              piiFindings: input.piiFindings,
+              piiAcknowledged: input.piiAcknowledged,
             }).value
           : undefined,
     },
@@ -333,6 +377,10 @@ export async function askTurn(input: {
     fileId: input.fileId,
     fileName: input.fileName,
     table: input.table,
+    excelSheet: input.excelSheet ?? null,
+    excelRange: input.excelRange ?? undefined,
+    piiFindings: input.piiFindings,
+    piiAcknowledged: input.piiAcknowledged,
     datasetName: input.fileName
       ? input.fileName.replace(/\.[^.]+$/, "")
       : undefined,
@@ -354,9 +402,20 @@ export async function askTurn(input: {
           ...fromGraph,
           fileId: input.fileId || fromGraph.fileId,
           fileName: input.fileName || fromGraph.fileName,
+          excelSheet: input.excelSheet ?? fromGraph.excelSheet,
+          excelRange: input.excelRange ?? fromGraph.excelRange,
+          piiFindings: input.piiFindings ?? fromGraph.piiFindings,
+          piiAcknowledged: input.piiAcknowledged ?? fromGraph.piiAcknowledged,
         };
       }
     }
+  }
+
+  if (!seed.fileId && clarifyMeta?.pendingSeed?.fileId) {
+    seed = {
+      ...clarifyMeta.pendingSeed,
+      table: seed.table ?? clarifyMeta.pendingSeed.table,
+    };
   }
 
   // Restore upload from clarify fileId (never rehydrate huge tables from chat meta)
@@ -369,7 +428,10 @@ export async function askTurn(input: {
     restoreFileId &&
     (!seed.table?.columns?.length || tableLooksSample || input.forceBuild)
   ) {
-    const loaded = await loadUploadedTable(input.userId, restoreFileId);
+    const loaded = await loadUploadedTable(input.userId, restoreFileId, {
+      sheet: seed.excelSheet,
+      range: seed.excelRange,
+    });
     if (loaded) {
       seed = {
         fileId: restoreFileId,
@@ -379,6 +441,10 @@ export async function askTurn(input: {
           clarifyMeta?.pendingSeed?.fileName,
         datasetName:
           seed.datasetName || clarifyMeta?.pendingSeed?.datasetName,
+        excelSheet: seed.excelSheet ?? null,
+        excelRange: seed.excelRange,
+        piiFindings: seed.piiFindings,
+        piiAcknowledged: seed.piiAcknowledged,
         // Keep a sample in memory for Ask; worker reloads full file via fileId
         table: sampleTable(loaded.table, PLAN_SAMPLE_ROWS),
       };
@@ -479,6 +545,10 @@ export async function askTurn(input: {
               fileId: seed.fileId,
               fileName: seed.fileName,
               datasetName: seed.datasetName,
+              excelSheet: seed.excelSheet,
+              excelRange: seed.excelRange,
+              piiFindings: seed.piiFindings,
+              piiAcknowledged: seed.piiAcknowledged,
             },
           }).value,
         },
@@ -876,6 +946,7 @@ export async function completeAskRun(
           ? compactJsonValue(artifacts.tablePreview, { maxTableRows: 24 })
           : null,
         exports: artifacts.exports,
+        forecastTrust: artifacts.forecastTrust,
         datasetMeta: datasetMeta || undefined,
       },
       "ask-run-result",

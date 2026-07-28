@@ -18,6 +18,12 @@ type AttachedFile = {
   fileName: string;
   table: unknown;
   rowCount: number;
+  sheetNames: string[];
+  sheet: string | null;
+  range: string | null;
+  piiFindings: unknown[];
+  piiAcknowledged: boolean;
+  disclaimer?: string;
 };
 
 export function AskPanel() {
@@ -35,10 +41,13 @@ export function AskPanel() {
   const [activeRunId, setActiveRunId] = useState<string | null>(null);
   const [input, setInput] = useState("");
   const [attached, setAttached] = useState<AttachedFile | null>(null);
+  const [aiOptIn, setAiOptIn] = useState(false);
+  const [dragActive, setDragActive] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const [awaitingClarify, setAwaitingClarify] = useState(false);
+  const pollSeqRef = useRef(0);
 
   const loadThreads = useCallback(async () => {
     const res = await fetch("/api/ask/threads");
@@ -46,7 +55,8 @@ export function AskPanel() {
     if (res.ok) setThreads(json.threads ?? []);
   }, []);
 
-  const loadThread = useCallback(async (id: string) => {
+  async function loadThread(id: string, opts?: { preservePoll?: boolean }) {
+    if (!opts?.preservePoll) pollSeqRef.current += 1;
     const res = await fetch(`/api/ask/threads/${id}`);
     const json = await res.json();
     if (!res.ok) {
@@ -67,6 +77,20 @@ export function AskPanel() {
     const lastWithStatus = [...msgs].reverse().find((m) => m.metaJson?.status);
     setRunStatus(lastWithStatus?.metaJson?.status ?? null);
     setCurrentStepType(lastWithStatus?.metaJson?.currentStepType ?? null);
+    const pendingRun = [...msgs].reverse().find((m) => {
+      const status = m.metaJson?.status;
+      return (
+        m.runId &&
+        typeof status === "string" &&
+        ["QUEUED", "RUNNING"].includes(status)
+      );
+    });
+    if (pendingRun?.runId && !opts?.preservePoll) {
+      setActiveRunId(pendingRun.runId);
+      void pollRun(id, pendingRun.runId);
+    } else if (!pendingRun) {
+      setActiveRunId(null);
+    }
     const lastSteps = [...msgs].reverse().find((m) => {
       const steps = m.metaJson?.steps;
       const planSteps = m.metaJson?.plan?.steps;
@@ -89,7 +113,7 @@ export function AskPanel() {
     if (lastSteps?.metaJson?.flowName) {
       setFlowName(lastSteps.metaJson.flowName);
     }
-  }, []);
+  }
 
   useEffect(() => {
     void loadThreads();
@@ -116,10 +140,12 @@ export function AskPanel() {
   }
 
   async function pollRun(tid: string, runId: string) {
+    const pollSeq = (pollSeqRef.current += 1);
     let watching = runId;
     setActiveRunId(watching);
     for (let i = 0; i < 160; i++) {
       await new Promise((r) => setTimeout(r, 900));
+      if (pollSeq !== pollSeqRef.current) return;
       const res = await fetch(`/api/ask/threads/${tid}/runs/${watching}`);
       const json = await res.json();
       if (!res.ok) break;
@@ -141,27 +167,24 @@ export function AskPanel() {
         watching = json.runId as string;
         setActiveRunId(watching);
         setRunStatus("QUEUED");
-        await loadThread(tid);
+        await loadThread(tid, { preservePoll: true });
         continue;
       }
       if (!json.pending) {
         setActiveRunId(null);
         setCurrentStepType(null);
-        await loadThread(tid);
+        await loadThread(tid, { preservePoll: true });
         return;
       }
     }
     setActiveRunId(null);
-    await loadThread(tid);
+    await loadThread(tid, { preservePoll: true });
   }
 
-  async function onPickFile(file: File | null) {
-    if (!file) return;
+  async function parseUpload(form: FormData) {
     setUploading(true);
     setError("");
     try {
-      const form = new FormData();
-      form.append("file", file);
       const res = await fetch("/api/upload", { method: "POST", body: form });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error ?? "Upload failed");
@@ -171,6 +194,12 @@ export function AskPanel() {
         fileName: json.fileName,
         table: json.table,
         rowCount: rows,
+        sheetNames: Array.isArray(json.sheetNames) ? json.sheetNames : [],
+        sheet: json.sheet ?? null,
+        range: json.range ?? null,
+        piiFindings: Array.isArray(json.piiFindings) ? json.piiFindings : [],
+        piiAcknowledged: false,
+        disclaimer: typeof json.disclaimer === "string" ? json.disclaimer : undefined,
       });
     } catch (e) {
       setAttached(null);
@@ -181,12 +210,34 @@ export function AskPanel() {
     }
   }
 
+  async function onPickFile(file: File | null) {
+    if (!file) return;
+    const form = new FormData();
+    form.append("file", file);
+    await parseUpload(form);
+  }
+
+  async function reparseAttached(patch: { sheet?: string | null; range?: string | null }) {
+    if (!attached) return;
+    const nextSheet = patch.sheet !== undefined ? patch.sheet : attached.sheet;
+    const nextRange = patch.range !== undefined ? patch.range : attached.range;
+    const form = new FormData();
+    form.append("fileId", attached.fileId);
+    if (nextSheet) form.append("sheet", nextSheet);
+    if (nextRange) form.append("range", nextRange);
+    await parseUpload(form);
+  }
+
   async function sendMessage(
     text: string,
     opts?: { forceBuild?: boolean; keepAttached?: boolean },
   ) {
     const trimmed = text.trim();
     if (!trimmed || busy || uploading) return;
+    if (attached?.piiFindings.length && !attached.piiAcknowledged) {
+      setError("Acknowledge the personal-data warning before building the pipeline.");
+      return;
+    }
     setBusy(true);
     setError("");
     try {
@@ -194,12 +245,16 @@ export function AskPanel() {
       setInput("");
       const payload: Record<string, unknown> = {
         message: trimmed,
-        enableAi: true,
+        enableAi: aiOptIn,
         forceBuild: Boolean(opts?.forceBuild),
       };
       if (attached) {
         payload.fileId = attached.fileId;
         payload.fileName = attached.fileName;
+        payload.excelSheet = attached.sheet;
+        payload.excelRange = attached.range;
+        payload.piiFindings = attached.piiFindings;
+        payload.piiAcknowledged = attached.piiAcknowledged;
         const t = attached.table as {
           columns?: string[];
           rows?: unknown[];
@@ -253,6 +308,7 @@ export function AskPanel() {
   }
 
   function resetChat() {
+    pollSeqRef.current += 1;
     setThreadId(null);
     setMessages([]);
     setFlowId(null);
@@ -366,7 +422,20 @@ export function AskPanel() {
 
         {error ? <p className="shrink-0 text-sm text-danger">{error}</p> : null}
 
-        <div className="shrink-0 space-y-2">
+        <div
+          className={`ask-dropzone shrink-0 space-y-2 ${dragActive ? "ask-dropzone--active" : ""}`}
+          onDragOver={(e) => {
+            e.preventDefault();
+            if (!busy && !uploading) setDragActive(true);
+          }}
+          onDragLeave={() => setDragActive(false)}
+          onDrop={(e) => {
+            e.preventDefault();
+            setDragActive(false);
+            if (busy || uploading) return;
+            void onPickFile(e.dataTransfer.files?.[0] ?? null);
+          }}
+        >
           <input
             id={fileInputId}
             ref={fileRef}
@@ -377,23 +446,97 @@ export function AskPanel() {
             onChange={(e) => void onPickFile(e.target.files?.[0] ?? null)}
           />
           {attached ? (
-            <div className="ask-attach-ready">
-              <span className="min-w-0 flex-1 truncate">
-                Ready: <span className="font-medium">{attached.fileName}</span>
-                {attached.rowCount ? (
-                  <span className="text-muted"> · {attached.rowCount} rows</span>
-                ) : null}
-              </span>
-              <button
-                type="button"
-                className="btn btn-sm btn-ghost"
-                disabled={busy || uploading}
-                onClick={() => setAttached(null)}
-              >
-                Remove
-              </button>
+            <div className="space-y-2">
+              <div className="ask-attach-ready">
+                <span className="min-w-0 flex-1 truncate">
+                  Ready: <span className="font-medium">{attached.fileName}</span>
+                  {attached.rowCount ? (
+                    <span className="text-muted"> · {attached.rowCount} rows</span>
+                  ) : null}
+                </span>
+                <button
+                  type="button"
+                  className="btn btn-sm btn-ghost"
+                  disabled={busy || uploading}
+                  onClick={() => setAttached(null)}
+                >
+                  Remove
+                </button>
+              </div>
+
+              {attached.sheetNames.length ? (
+                <div className="ask-upload-options">
+                  <label className="text-xs font-medium text-muted">
+                    Excel sheet
+                    <select
+                      className="input mt-1 text-sm"
+                      value={attached.sheet ?? ""}
+                      disabled={busy || uploading}
+                      onChange={(e) =>
+                        void reparseAttached({ sheet: e.target.value || null })
+                      }
+                    >
+                      {attached.sheetNames.map((s) => (
+                        <option key={s} value={s}>
+                          {s}
+                        </option>
+                      ))}
+                    </select>
+                  </label>
+                  <label className="text-xs font-medium text-muted">
+                    Optional range
+                    <input
+                      className="input mt-1 text-sm"
+                      placeholder="A1:F200"
+                      defaultValue={attached.range ?? ""}
+                      disabled={busy || uploading}
+                      onBlur={(e) =>
+                        void reparseAttached({
+                          range: e.target.value.trim() || null,
+                        })
+                      }
+                    />
+                  </label>
+                </div>
+              ) : null}
+
+              {attached.piiFindings.length ? (
+                <label className="ask-pii">
+                  <input
+                    type="checkbox"
+                    checked={attached.piiAcknowledged}
+                    disabled={busy || uploading}
+                    onChange={(e) =>
+                      setAttached((prev) =>
+                        prev
+                          ? { ...prev, piiAcknowledged: e.target.checked }
+                          : prev,
+                      )
+                    }
+                  />
+                  <span>
+                    This file appears to contain personal data. I confirm I’m allowed
+                    to analyse it and understand AI will only be used if I opt in.
+                  </span>
+                </label>
+              ) : null}
             </div>
           ) : null}
+          {!attached ? (
+            <p className="ask-dropzone__hint">
+              Drag a CSV or Excel file here, or attach one below. We’ll profile it
+              first and ask only the questions needed to build a useful pipeline.
+            </p>
+          ) : null}
+          <label className="ask-ai-optin">
+            <input
+              type="checkbox"
+              checked={aiOptIn}
+              disabled={busy || uploading}
+              onChange={(e) => setAiOptIn(e.target.checked)}
+            />
+            <span>Use my saved AI key to explain results after deterministic checks.</span>
+          </label>
           <div className="flex gap-2">
             <button
               type="button"
@@ -427,7 +570,11 @@ export function AskPanel() {
               type="button"
               className="btn btn-primary"
               disabled={
-                busy || uploading || awaitingClarify || !input.trim()
+                busy ||
+                uploading ||
+                awaitingClarify ||
+                !input.trim() ||
+                Boolean(attached?.piiFindings.length && !attached.piiAcknowledged)
               }
               onClick={() => void sendMessage(input)}
               title={

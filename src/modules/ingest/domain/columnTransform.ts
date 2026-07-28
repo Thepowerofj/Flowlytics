@@ -256,6 +256,34 @@ export function parseDate(
     }
   }
 
+  // Quarter / fiscal quarter labels: Q1 2024, 2024 Q2, FY2024 Q3.
+  const quarter =
+    raw.match(/^Q([1-4])[\s\-\/]*(?:FY)?(\d{2,4})$/i) ??
+    raw.match(/^(?:FY)?(\d{2,4})[\s\-\/]*Q([1-4])$/i);
+  if (quarter) {
+    const a = quarter[1]!;
+    const b = quarter[2]!;
+    const q = raw.toLowerCase().startsWith("q") ? Number(a) : Number(b);
+    const y = raw.toLowerCase().startsWith("q") ? Number(b) : Number(a);
+    return toIsoDate(y, (q - 1) * 3 + 1, 1);
+  }
+
+  // ISO-like week labels: 2025-W03 or Week 03 2025 → Monday of that week.
+  const week =
+    raw.match(/^(\d{4})[\s\-\/]*W(?:eek)?\s*(\d{1,2})$/i) ??
+    raw.match(/^W(?:eek)?\s*(\d{1,2})[\s\-\/]*(\d{4})$/i);
+  if (week) {
+    const year = raw.match(/^\d{4}/) ? Number(week[1]) : Number(week[2]);
+    const weekNo = raw.match(/^\d{4}/) ? Number(week[2]) : Number(week[1]);
+    if (weekNo >= 1 && weekNo <= 53) {
+      const jan4 = new Date(Date.UTC(year, 0, 4));
+      const day = jan4.getUTCDay() || 7;
+      const monday = new Date(jan4);
+      monday.setUTCDate(jan4.getUTCDate() - day + 1 + (weekNo - 1) * 7);
+      return monday.toISOString().slice(0, 10);
+    }
+  }
+
   // D/M/Y or M/D/Y with optional time suffix (do NOT use Date.parse — US-biased)
   const slash = raw.match(
     /^(\d{1,2})[\/\-.](\d{1,2})[\/\-.](\d{2,4})(?:\s+.*)?$/,

@@ -120,4 +120,68 @@ describe("forecast", () => {
     expect(future).toHaveLength(2);
     expect(future[0]?.period).toBe("2024-04-01");
   });
+
+  it("emits diagnostics, leaderboard metrics, intervals, and scenarios", () => {
+    const result = buildForecast(
+      {
+        columns: ["Month", "Revenue"],
+        rows: [
+          { Month: "Jan 2024", Revenue: 100 },
+          { Month: "Feb 2024", Revenue: 110 },
+          { Month: "Mar 2024", Revenue: 121 },
+          { Month: "Apr 2024", Revenue: 130 },
+          { Month: "May 2024", Revenue: 142 },
+          { Month: "Jun 2024", Revenue: 155 },
+        ],
+      },
+      {
+        column: "Revenue",
+        periodColumn: "Month",
+        periods: 3,
+        method: "trend",
+        confidenceBand: true,
+      },
+    );
+
+    expect(result.diagnostics?.readiness).toBe("ready");
+    expect(result.compare?.length).toBeGreaterThan(1);
+    expect(result.backtest?.rmse).toBeGreaterThanOrEqual(0);
+    expect(result.intervalMethod).toMatch(/residual/i);
+    expect(result.scenarios?.map((s) => s.name)).toEqual([
+      "base",
+      "upside",
+      "downside",
+    ]);
+    expect(result.points.filter((p) => p.series === "Forecast")[2]?.high).toBeGreaterThan(
+      result.points.filter((p) => p.series === "Forecast")[0]?.high ?? 0,
+    );
+  });
+
+  it("orders quarter and week labels chronologically", () => {
+    const quarter = buildForecast(
+      {
+        columns: ["Period", "Revenue"],
+        rows: [
+          { Period: "FY2024 Q3", Revenue: 300 },
+          { Period: "Q1 2024", Revenue: 100 },
+          { Period: "2024 Q2", Revenue: 200 },
+        ],
+      },
+      { column: "Revenue", periodColumn: "Period", periods: 1, method: "trend" },
+    );
+    expect(quarter.actual).toEqual([100, 200, 300]);
+
+    const week = buildForecast(
+      {
+        columns: ["Week", "Units"],
+        rows: [
+          { Week: "2025-W03", Units: 30 },
+          { Week: "2025-W01", Units: 10 },
+          { Week: "2025-W02", Units: 20 },
+        ],
+      },
+      { column: "Units", periodColumn: "Week", periods: 1, method: "trend" },
+    );
+    expect(week.actual).toEqual([10, 20, 30]);
+  });
 });

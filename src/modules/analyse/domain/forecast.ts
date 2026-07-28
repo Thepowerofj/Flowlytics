@@ -84,8 +84,12 @@ export type ForecastPoint = {
 
 export type BacktestSummary = {
   holdout: number;
+  folds?: number;
   mae: number;
+  rmse?: number;
   mape: number | null;
+  smape?: number | null;
+  bias?: number;
   method: ForecastMethod;
 };
 
@@ -97,6 +101,7 @@ export type MethodCompareRow = {
 
 export type ForecastResult = {
   method: ForecastMethod;
+  selectedModelReason?: string;
   column: string;
   periods: number;
   actual: number[];
@@ -110,6 +115,33 @@ export type ForecastResult = {
   compare?: MethodCompareRow[];
   recommendedMethod?: ForecastMethod;
   backtest?: BacktestSummary;
+  diagnostics?: ForecastDiagnostics;
+  intervalMethod?: string;
+  scenarios?: ForecastScenario[];
+  reproducibility?: {
+    generatedAt: string;
+    inputRows: number;
+    historyPoints: number;
+  };
+};
+
+export type ForecastDiagnostics = {
+  readiness: "ready" | "limited" | "not_enough_history";
+  frequency: string;
+  historyPoints: number;
+  duplicatePeriodsAggregated: number;
+  hasZeros: boolean;
+  hasNegatives: boolean;
+  intermittentDemand: boolean;
+  eligibleMethods: ForecastMethod[];
+  warnings: string[];
+};
+
+export type ForecastScenario = {
+  name: "base" | "upside" | "downside";
+  assumption: string;
+  forecast: number[];
+  points: ForecastPoint[];
 };
 
 function clampPeriods(n: number): number {
@@ -247,9 +279,119 @@ function residualBand(
   const z = 1.96;
   const fc = forecastValues(values, { ...options, method });
   return {
-    low: fc.map((v) => Number((v - z * stdev).toFixed(2))),
-    high: fc.map((v) => Number((v + z * stdev).toFixed(2))),
+    low: fc.map((v, i) => Number((v - z * stdev * Math.sqrt(i + 1)).toFixed(2))),
+    high: fc.map((v, i) => Number((v + z * stdev * Math.sqrt(i + 1)).toFixed(2))),
   };
+}
+
+function inferFrequency(labels: string[]): string {
+  const parsed = labels
+    .map((l) => parseDate(l, "auto"))
+    .filter((l): l is string => Boolean(l))
+    .map((l) => new Date(`${l}T00:00:00Z`).getTime())
+    .sort((a, b) => a - b);
+  if (parsed.length < 2) return "unknown";
+  const diffs = parsed.slice(1).map((ms, i) => (ms - parsed[i]!) / 86_400_000);
+  const median = [...diffs].sort((a, b) => a - b)[Math.floor(diffs.length / 2)]!;
+  if (median <= 2) return "daily";
+  if (median <= 9) return "weekly";
+  if (median >= 27 && median <= 32) return "monthly";
+  if (median >= 80 && median <= 100) return "quarterly";
+  return "irregular";
+}
+
+function eligibleForecastMethods(
+  values: number[],
+  options: { seasonLength?: number } = {},
+): ForecastMethod[] {
+  if (values.length < 2) return ["naive"];
+  const season = Math.max(2, Math.round(options.seasonLength ?? 12));
+  const hasZeros = values.some((v) => v === 0);
+  const methods: ForecastMethod[] = ["naive", "moving_average", "smooth", "trend"];
+  if (values.length >= season + 2) methods.push("seasonal_naive");
+  if (!hasZeros && values.length >= 3) methods.push("growth");
+  if (values.length >= 4) methods.push("ensemble");
+  return methods;
+}
+
+function forecastDiagnostics(input: {
+  rawPointCount: number;
+  labels: string[];
+  values: number[];
+  seasonLength?: number;
+}): ForecastDiagnostics {
+  const values = input.values;
+  const warnings: string[] = [];
+  const duplicatePeriodsAggregated = Math.max(0, input.rawPointCount - values.length);
+  const hasZeros = values.some((v) => v === 0);
+  const hasNegatives = values.some((v) => v < 0);
+  const zeroShare = values.length
+    ? values.filter((v) => v === 0).length / values.length
+    : 0;
+  const intermittentDemand = zeroShare >= 0.3 && values.some((v) => v > 0);
+  const frequency = inferFrequency(input.labels);
+
+  if (values.length < 2) warnings.push("Not enough history to validate a forecast.");
+  if (values.length < 6) warnings.push("Short history: forecast confidence is limited.");
+  if (duplicatePeriodsAggregated) {
+    warnings.push(`${duplicatePeriodsAggregated} duplicate period row(s) were aggregated.`);
+  }
+  if (frequency === "irregular") {
+    warnings.push("Period spacing looks irregular; intervals use historical error only.");
+  }
+  if (intermittentDemand) {
+    warnings.push("Intermittent demand detected; simple methods may understate spikes.");
+  }
+  if (hasNegatives) warnings.push("Negative values detected; growth models may be unsuitable.");
+
+  return {
+    readiness:
+      values.length < 2
+        ? "not_enough_history"
+        : values.length < 6
+          ? "limited"
+          : "ready",
+    frequency,
+    historyPoints: values.length,
+    duplicatePeriodsAggregated,
+    hasZeros,
+    hasNegatives,
+    intermittentDemand,
+    eligibleMethods: eligibleForecastMethods(values, {
+      seasonLength: input.seasonLength,
+    }),
+    warnings,
+  };
+}
+
+function scenarioForecasts(
+  forecast: number[],
+  labels: string[],
+): ForecastScenario[] {
+  const mk = (
+    name: ForecastScenario["name"],
+    factor: number,
+    assumption: string,
+  ): ForecastScenario => {
+    const values = forecast.map((v, i) =>
+      Number((v * (1 + factor * ((i + 1) / Math.max(1, forecast.length)))).toFixed(2)),
+    );
+    return {
+      name,
+      assumption,
+      forecast: values,
+      points: values.map((value, i) => ({
+        period: labels[i] ?? `F${i + 1}`,
+        value,
+        series: "Forecast" as const,
+      })),
+    };
+  };
+  return [
+    mk("base", 0, "Selected model output"),
+    mk("upside", 0.1, "Gradually improves up to +10% by horizon end"),
+    mk("downside", -0.1, "Gradually softens down to -10% by horizon end"),
+  ];
 }
 
 export type FutureHorizonMode = "count" | "until" | "custom";
@@ -383,22 +525,38 @@ export function backtestMethod(
     periods: holdout,
   });
   let absErr = 0;
+  let sqErr = 0;
+  let bias = 0;
   let pctSum = 0;
+  let smapeSum = 0;
   let pctN = 0;
+  let smapeN = 0;
   for (let i = 0; i < holdout; i++) {
     const a = actualHold[i]!;
     const p = pred[i]!;
-    absErr += Math.abs(a - p);
+    const err = p - a;
+    absErr += Math.abs(err);
+    sqErr += err * err;
+    bias += err;
     if (a !== 0) {
       pctSum += Math.abs((a - p) / a);
       pctN += 1;
     }
+    const denom = Math.abs(a) + Math.abs(p);
+    if (denom !== 0) {
+      smapeSum += (2 * Math.abs(a - p)) / denom;
+      smapeN += 1;
+    }
   }
   return {
     holdout,
+    folds: 1,
     method,
     mae: Number((absErr / holdout).toFixed(4)),
+    rmse: Number(Math.sqrt(sqErr / holdout).toFixed(4)),
     mape: pctN ? Number(((pctSum / pctN) * 100).toFixed(2)) : null,
+    smape: smapeN ? Number(((smapeSum / smapeN) * 100).toFixed(2)) : null,
+    bias: Number((bias / holdout).toFixed(4)),
   };
 }
 
@@ -408,20 +566,32 @@ export function compareForecastMethods(
   periods: number,
   options: Omit<ForecastOptions, "method" | "periods"> = {},
 ): { compare: MethodCompareRow[]; recommended: ForecastMethod } {
-  const compare: MethodCompareRow[] = methods.map((method) => ({
+  const eligible = eligibleForecastMethods(values, options);
+  const usable = methods.filter((m) => eligible.includes(m));
+  const compare: MethodCompareRow[] = (usable.length ? usable : methods).map((method) => ({
     method,
     forecast: forecastValues(values, { ...options, method, periods }),
     backtest: backtestMethod(values, method, options),
   }));
-  let recommended = methods[0] ?? "trend";
-  let best = Infinity;
-  for (const row of compare) {
-    const score = row.backtest?.mae ?? Infinity;
-    if (score < best) {
-      best = score;
-      recommended = row.method;
-    }
-  }
+  const simplicity: ForecastMethod[] = [
+    "naive",
+    "moving_average",
+    "smooth",
+    "trend",
+    "seasonal_naive",
+    "growth",
+    "ensemble",
+  ];
+  const withScores = compare.filter((r) => Number.isFinite(r.backtest?.mae));
+  const best = Math.min(...withScores.map((r) => r.backtest!.mae), Infinity);
+  const tolerance = best === Infinity ? Infinity : best * 1.05;
+  const recommended =
+    simplicity.find((method) =>
+      withScores.some((r) => r.method === method && r.backtest!.mae <= tolerance),
+    ) ??
+    withScores[0]?.method ??
+    methods[0] ??
+    "trend";
   return { compare, recommended };
 }
 
@@ -451,9 +621,8 @@ export function buildForecast(
     config.periodColumn && config.periodColumn !== column
       ? config.periodColumn
       : "";
-  const rawPoints = aggregateHistoryByPeriod(
-    extractHistoryPoints(table.rows, column, periodCol),
-  );
+  const extractedPoints = extractHistoryPoints(table.rows, column, periodCol);
+  const rawPoints = aggregateHistoryByPeriod(extractedPoints);
   const asIsLabels = rawPoints.map((p) => p.label);
   const chronologyWarning =
     !isChronologicallySorted(asIsLabels) &&
@@ -466,6 +635,12 @@ export function buildForecast(
   );
   const actual = ordered.map((p) => p.value);
   const periodLabels = ordered.map((p) => p.label);
+  const diagnostics = forecastDiagnostics({
+    rawPointCount: extractedPoints.length,
+    labels: periodLabels,
+    values: actual,
+    seasonLength: config.seasonLength,
+  });
 
   const futureLabels = resolveFutureLabels(periodLabels, config);
   const periods = clampPeriods(futureLabels.length || config.periods || 3);
@@ -483,18 +658,29 @@ export function buildForecast(
     confidenceBand: config.confidenceBand ?? method === "trend",
   };
 
-  const forecast = forecastValues(actual, options);
-  const band = residualBand(actual, method, options);
-  const backtest = backtestMethod(actual, method, options);
-
   const compareList = (config.compareMethods ?? [])
     .map((m) => m as ForecastMethod)
     .filter((m) => FORECAST_METHOD_OPTIONS.some((o) => o.id === m));
-  const uniqueCompare = [...new Set([method, ...compareList])];
-  const { compare, recommended } =
-    uniqueCompare.length > 1
-      ? compareForecastMethods(actual, uniqueCompare, periods, options)
-      : { compare: undefined, recommended: method };
+  const defaultCompare = diagnostics.eligibleMethods.filter((m) => m !== "ensemble");
+  const uniqueCompare = [...new Set([method, ...compareList, ...defaultCompare])];
+  const { compare, recommended } = compareForecastMethods(
+    actual,
+    uniqueCompare,
+    periods,
+    options,
+  );
+  const selectedMethod =
+    diagnostics.eligibleMethods.includes(method) && method !== "ensemble"
+      ? method
+      : recommended;
+  const selectedModelReason =
+    selectedMethod === method
+      ? "Using the configured eligible method."
+      : `Switched from ${method} to ${selectedMethod} because the configured method was not eligible for this history.`;
+  const selectedOptions = { ...options, method: selectedMethod };
+  const forecast = forecastValues(actual, selectedOptions);
+  const band = residualBand(actual, selectedMethod, selectedOptions);
+  const backtest = backtestMethod(actual, selectedMethod, selectedOptions);
 
   const points: ForecastPoint[] = [
     ...actual.map((value, i) => ({
@@ -551,7 +737,8 @@ export function buildForecast(
   }
 
   return {
-    method,
+    method: selectedMethod,
+    selectedModelReason,
     column,
     periods,
     actual,
@@ -567,6 +754,16 @@ export function buildForecast(
     compare,
     recommendedMethod: recommended,
     backtest,
+    diagnostics,
+    intervalMethod: band
+      ? "Historical one-step residual envelope widened by forecast horizon; not a guaranteed 95% claim."
+      : undefined,
+    scenarios: scenarioForecasts(forecast, labels),
+    reproducibility: {
+      generatedAt: "deterministic",
+      inputRows: table.rows.length,
+      historyPoints: actual.length,
+    },
   };
 }
 

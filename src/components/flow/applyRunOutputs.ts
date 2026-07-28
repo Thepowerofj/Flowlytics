@@ -91,6 +91,8 @@ export function mergeRunOutputIntoConfig(
       _inputColumnFormats: config._inputColumnFormats,
     };
     if (output.stats != null) next._runStats = output.stats;
+    if (output.contract != null) next._runContract = output.contract;
+    if (output.qualityProfile != null) next._qualityProfile = output.qualityProfile;
     if (output.chart != null) next._runChart = output.chart;
     if (output.projection != null) next._runProjection = output.projection;
     if (typeof output.explanation === "string") next.explanation = output.explanation;
@@ -118,6 +120,8 @@ export function mergeRunOutputIntoConfig(
   };
 
   if (output.stats != null) next._runStats = output.stats;
+  if (output.contract != null) next._runContract = output.contract;
+  if (output.qualityProfile != null) next._qualityProfile = output.qualityProfile;
   if (output.chart != null) next._runChart = output.chart;
   if (output.projection != null) next._runProjection = output.projection;
   if (typeof output.explanation === "string") next.explanation = output.explanation;

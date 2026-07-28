@@ -1,4 +1,9 @@
 import { suggestCharts } from "@/modules/analyse/domain/charts";
+import { aggregateTable } from "@/modules/analyse/domain/aggregate";
+import {
+  profileDataset,
+  type DatasetQualityProfile,
+} from "@/modules/analyse/domain/dataProfile";
 import {
   columnLooksLikeDate,
   guessPeriodColumn,
@@ -41,6 +46,7 @@ export type DataProfile = {
   measureCol: string;
   periodCol: string;
   categoryCol: string;
+  quality: DatasetQualityProfile;
 };
 
 function uid(prefix: string): string {
@@ -57,6 +63,11 @@ export function profileTable(table: TabularData, goal?: string): DataProfile {
   const periodCol = guessPeriodColumn(table, measureCol) || dateCols[0] || "";
   const categoryCol =
     categoricalCols.find((c) => !/id$/i.test(c)) || categoricalCols[0] || "";
+  const quality = profileDataset(table, {
+    periodColumn: periodCol,
+    measureColumn: measureCol,
+    categoryColumn: categoryCol,
+  });
   return {
     rowCount: table.rows.length,
     columnCount: table.columns.length,
@@ -66,6 +77,7 @@ export function profileTable(table: TabularData, goal?: string): DataProfile {
     measureCol,
     periodCol,
     categoryCol,
+    quality,
   };
 }
 
@@ -116,6 +128,25 @@ function aggregateConfig(profile: DataProfile): Record<string, unknown> {
         as: `${profile.measureCol}_sum`,
       },
     ],
+  };
+}
+
+function periodAggregateConfig(profile: DataProfile): Record<string, unknown> {
+  if (!profile.periodCol) return {};
+  return {
+    groupBy: [profile.periodCol],
+    metrics: profile.measureCol
+      ? [
+          {
+            op: "sum",
+            column: profile.measureCol,
+            as: profile.measureCol,
+          },
+        ]
+      : [{ op: "count", as: "Row count" }],
+    datasetName: `By ${profile.periodCol}`,
+    _analyticalGrain: "period",
+    _primaryMeasure: profile.measureCol || "Row count",
   };
 }
 
@@ -238,7 +269,9 @@ export function planAutoPipeline(input: {
 
   if (wantForecast && profile.measureCol) {
     archetype = "timeseries";
-    rationale = `Forecasting **${profile.measureCol}** over **${profile.periodCol || "periods"}** (not ID/key columns). Pipeline cleans, projects the orange forecast series, then writes insights.`;
+    rationale = `Forecasting **${profile.measureCol}** over **${profile.periodCol || "periods"}** (not ID/key columns). Pipeline cleans${
+      profile.quality.rowGrain === "transaction" ? ", aggregates duplicate periods," : ""
+    } projects the orange forecast series, then writes insights.`;
   } else if (wantForecast && !profile.measureCol) {
     archetype = "numeric";
     rationale =
@@ -263,7 +296,13 @@ export function planAutoPipeline(input: {
     { type: "transform.clean_map", label: "Clean / Map" },
   ];
 
-  if (archetype === "categorical") {
+  if (archetype === "timeseries" && profile.quality.rowGrain === "transaction") {
+    steps.push({
+      type: "transform.aggregate",
+      label: "Aggregate by Period",
+      config: periodAggregateConfig(profile),
+    });
+  } else if (archetype === "categorical") {
     steps.push({
       type: "transform.aggregate",
       label: "Aggregate",
@@ -271,7 +310,19 @@ export function planAutoPipeline(input: {
     });
   }
 
-  steps.push({ type: "analyse.stats", label: "Stats" });
+  steps.push({
+    type: "analyse.stats",
+    label: "Stats",
+    config: {
+      _primaryMeasure: profile.measureCol,
+      _analyticalGrain:
+        archetype === "timeseries"
+          ? "period"
+          : archetype === "categorical"
+            ? "category"
+            : "record",
+    },
+  });
 
   // Timeseries: Forecast block owns the chart (teal history + orange forecast).
   // A separate Chart step would only show history and hide the orange series.
@@ -322,7 +373,13 @@ export function planAutoPipeline(input: {
     label: "Export",
     config: {
       fileName: `${(profile.measureCol || "data").replace(/[^\w\-]+/g, "-").toLowerCase()}-export.csv`,
-      selectedColumns: table.columns.slice(0, 12),
+      _primaryMeasure: profile.measureCol,
+      _analyticalGrain:
+        archetype === "timeseries"
+          ? "period"
+          : archetype === "categorical"
+            ? "category"
+            : "record",
     },
   });
 
@@ -344,6 +401,7 @@ export type IngestSeed = {
   excelSheet?: string | null;
   excelRange?: string;
   piiFindings?: unknown[];
+  piiAcknowledged?: boolean;
   datasetName?: string;
 };
 
@@ -362,6 +420,7 @@ export function extractIngestSeedFromGraph(graph: FlowGraph): IngestSeed | null 
     excelSheet: (c.excelSheet as string | null | undefined) ?? null,
     excelRange: typeof c.excelRange === "string" ? c.excelRange : undefined,
     piiFindings: Array.isArray(c.piiFindings) ? c.piiFindings : undefined,
+    piiAcknowledged: Boolean(c.piiAcknowledged),
     datasetName:
       typeof c.datasetName === "string" ? c.datasetName : undefined,
   };
@@ -400,7 +459,9 @@ export function materializeAutoPipelineGraph(
         excelSheet: ingestSeed.excelSheet ?? null,
         excelRange: ingestSeed.excelRange ?? "",
         piiFindings: ingestSeed.piiFindings ?? [],
-        piiAcknowledged: !(ingestSeed.piiFindings as unknown[] | undefined)?.length,
+        piiAcknowledged:
+          ingestSeed.piiAcknowledged ??
+          !(ingestSeed.piiFindings as unknown[] | undefined)?.length,
         _sourceColumns: ingestSeed.table?.columns ?? [],
         _previewSample: false,
         datasetName:
@@ -466,6 +527,21 @@ export function materializeAutoPipelineGraph(
           _sourceColumns: prevTable.columns,
           _previewSample: true,
         };
+      }
+    }
+
+    if (step.type === "transform.aggregate" && prevTable?.columns?.length) {
+      const groupBy = (config.groupBy as string[] | undefined) ?? [];
+      const metrics =
+        (config.metrics as
+          | Parameters<typeof aggregateTable>[1]["metrics"]
+          | undefined) ?? [];
+      if (groupBy.length || metrics.length) {
+        try {
+          prevTable = aggregateTable(prevTable, { groupBy, metrics });
+        } catch {
+          // Keep the upstream preview if the aggregate config is incomplete.
+        }
       }
     }
 

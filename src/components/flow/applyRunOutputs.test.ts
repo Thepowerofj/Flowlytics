@@ -48,6 +48,32 @@ describe("applyRunOutputs", () => {
     });
   });
 
+  it("preserves output contract and quality metadata for Builder diagnostics", () => {
+    const next = mergeRunOutputIntoConfig(
+      { _previewSample: true },
+      {
+        table: { columns: ["period", "value"], rows: [{ period: "Jan", value: 1 }] },
+        contract: {
+          version: 1,
+          kind: "forecast",
+          rowCount: 1,
+          grain: "period",
+          primaryMeasure: "value",
+          warnings: ["Short history"],
+        },
+        qualityProfile: { rowGrain: "period", warnings: ["Short history"] },
+      },
+      "analyse.chart",
+    );
+
+    expect(next._runContract).toMatchObject({
+      kind: "forecast",
+      grain: "period",
+      primaryMeasure: "value",
+    });
+    expect(next._qualityProfile).toMatchObject({ rowGrain: "period" });
+  });
+
 
   it("updates matching activity nodes", () => {
     const nodes = applyRunOutputsToNodes(

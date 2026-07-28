@@ -3,7 +3,13 @@
 import { useRouter } from "next/navigation";
 import { useState } from "react";
 
-export function CreateFlowButton() {
+export function CreateFlowButton({
+  label = "New flow",
+  className = "btn btn-primary",
+}: {
+  label?: string;
+  className?: string;
+}) {
   const router = useRouter();
   const [busy, setBusy] = useState(false);
 
@@ -20,8 +26,8 @@ export function CreateFlowButton() {
   }
 
   return (
-    <button className="btn btn-primary" disabled={busy} onClick={create} type="button">
-      {busy ? "Creating…" : "New flow"}
+    <button className={className} disabled={busy} onClick={create} type="button">
+      {busy ? "Creating…" : label}
     </button>
   );
 }

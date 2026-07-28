@@ -14,6 +14,10 @@ const bodySchema = z.object({
   table: tableSchema.optional(),
   fileId: z.string().optional(),
   fileName: z.string().optional(),
+  excelSheet: z.string().nullable().optional(),
+  excelRange: z.string().nullable().optional(),
+  piiFindings: z.array(z.unknown()).optional(),
+  piiAcknowledged: z.boolean().optional(),
   enableAi: z.boolean().optional(),
   forceBuild: z.boolean().optional(),
 });
@@ -33,6 +37,10 @@ export async function POST(
       table: body.table,
       fileId: body.fileId,
       fileName: body.fileName,
+      excelSheet: body.excelSheet,
+      excelRange: body.excelRange,
+      piiFindings: body.piiFindings,
+      piiAcknowledged: body.piiAcknowledged,
       enableAi: body.enableAi,
       forceBuild: body.forceBuild,
     });

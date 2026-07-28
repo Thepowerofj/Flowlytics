@@ -38,8 +38,8 @@ Covered: retry-from-block hydration/replay decision, URL ingest HTTPS/private-ne
 
 ```text
 npm test
-Test Files  45 passed (45)
-Tests  185 passed (185)
+Test Files  46 passed (46)
+Tests  190 passed (190)
 ```
 
 ### Typecheck (2026-07-28)
@@ -71,6 +71,8 @@ npm run build
 ✓ Compiled successfully
 ✓ Generating static pages (35/35)
 ```
+
+Remaining build warnings are existing React hook dependency warnings in `src/components/flow/FlowEditor.tsx` and `src/components/FlowList.tsx`; they do not fail the gate.
 
 ### Runtime smoke
 

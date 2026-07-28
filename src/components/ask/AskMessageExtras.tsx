@@ -36,6 +36,27 @@ export type AskMessageMeta = {
     fileName?: string;
   };
   exports?: { csv?: boolean; presentation?: boolean };
+  forecastTrust?: {
+    method?: string;
+    recommendedMethod?: string;
+    selectedModelReason?: string;
+    diagnostics?: {
+      readiness?: string;
+      frequency?: string;
+      historyPoints?: number;
+      warnings?: string[];
+    };
+    leaderboard?: {
+      method?: string;
+      backtest?: {
+        mae?: number;
+        rmse?: number;
+        smape?: number | null;
+        bias?: number;
+      };
+    }[];
+    intervalMethod?: string;
+  };
   questions?: ClarifyQuestion[];
   datasetBrief?: string;
   suggestedGoal?: string;
@@ -50,16 +71,34 @@ async function downloadRunCsv(runId: string, fileName: string) {
   const byBlock = result?.byBlockId as
     | Record<string, Record<string, unknown>>
     | undefined;
+  const candidates: { table: TabularData; score: number }[] = [];
   if (byBlock) {
     for (const out of Object.values(byBlock)) {
       const t = out.table as TabularData | undefined;
-      if (t?.columns?.length) table = t;
+      if (t?.columns?.length) {
+        const contract = out.contract as
+          | { kind?: string; transformations?: unknown[]; grain?: string }
+          | undefined;
+        const looksLikeForecast =
+          t.columns.includes("series") || t.columns.includes("forecast");
+        candidates.push({
+          table: t,
+          score:
+            (looksLikeForecast ? 60 : 0) +
+            (Array.isArray(contract?.transformations) ? 40 : 0) +
+            (contract?.kind === "table" ? 30 : 0) +
+            (contract?.grain ? 15 : 0) +
+            (out.insightReport ? -80 : 10) +
+            candidates.length,
+        });
+      }
     }
   }
   if (!table) {
     const top = result?.table as TabularData | undefined;
-    if (top?.columns?.length) table = top;
+    if (top?.columns?.length) candidates.push({ table: top, score: 0 });
   }
+  table = candidates.sort((a, b) => b.score - a.score)[0]?.table ?? null;
   if (!table) throw new Error("No table in this run");
   await downloadTableCsv(table, fileName);
 }
@@ -81,6 +120,51 @@ async function downloadPresentation(runId: string, format: "pdf" | "pptx") {
   a.download = `flowlytics-${runId.slice(-6)}.${format}`;
   a.click();
   URL.revokeObjectURL(url);
+}
+
+function ForecastTrustPanel({ trust }: { trust: AskMessageMeta["forecastTrust"] }) {
+  if (!trust) return null;
+  const warnings = trust.diagnostics?.warnings ?? [];
+  const top = trust.leaderboard
+    ?.filter((r) => r.method && r.backtest)
+    .slice(0, 3);
+  return (
+    <div className="ask-forecast-trust">
+      <div className="ask-forecast-trust__head">
+        <span>Forecast trust</span>
+        <span>{trust.diagnostics?.readiness ?? "limited"}</span>
+      </div>
+      <p>
+        Model: <strong>{trust.method ?? "forecast"}</strong>
+        {trust.recommendedMethod
+          ? ` · recommended: ${trust.recommendedMethod}`
+          : ""}
+      </p>
+      <p>
+        History: {trust.diagnostics?.historyPoints ?? "?"} point(s)
+        {trust.diagnostics?.frequency
+          ? ` · ${trust.diagnostics.frequency} cadence`
+          : ""}
+      </p>
+      {top?.length ? (
+        <div className="ask-forecast-trust__leaderboard">
+          {top.map((row) => (
+            <span key={row.method}>
+              {row.method}: MAE {row.backtest?.mae ?? "?"}
+            </span>
+          ))}
+        </div>
+      ) : null}
+      {trust.intervalMethod ? <p>{trust.intervalMethod}</p> : null}
+      {warnings.length ? (
+        <ul>
+          {warnings.slice(0, 3).map((w) => (
+            <li key={w}>{w}</li>
+          ))}
+        </ul>
+      ) : null}
+    </div>
+  );
 }
 
 export function AskMessageExtras({
@@ -143,7 +227,10 @@ export function AskMessageExtras({
   const pipeStatus = liveStatus || meta?.status || null;
   const pipeStep = liveStepType || meta?.currentStepType || null;
   const isClarify = meta?.kind === "clarify";
-  const questions = meta?.questions ?? [];
+  const questions = useMemo(
+    () => (Array.isArray(meta?.questions) ? meta.questions : []),
+    [meta?.questions],
+  );
   const [answers, setAnswers] = useState<Record<string, string>>(() => {
     const init: Record<string, string> = {};
     for (const q of questions) init[q.id] = "";
@@ -269,6 +356,8 @@ export function AskMessageExtras({
             </div>
           ))
         : null}
+
+      {!isUser ? <ForecastTrustPanel trust={meta?.forecastTrust} /> : null}
 
       {!isUser && preview?.columns?.length ? (
         <div className="ask-table-card">

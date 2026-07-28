@@ -1,8 +1,8 @@
 import {
   aggregateTable,
   type AggregateMetric,
-  type AggregateOp,
 } from "@/modules/analyse/domain/aggregate";
+import { profileDataset } from "@/modules/analyse/domain/dataProfile";
 import type { BlockDefinition, TabularData } from "../domain/types";
 import { aggregateMeta } from "../catalog";
 
@@ -20,6 +20,39 @@ export const aggregateBlock: BlockDefinition = {
     if (!aggregated.columns.length) {
       throw new Error("Aggregation produced no columns — check your settings.");
     }
-    return { table: aggregated };
+    const primaryMeasure =
+      typeof config._primaryMeasure === "string"
+        ? config._primaryMeasure
+        : metrics.find((m) => m.column)?.column;
+    const grain =
+      typeof config._analyticalGrain === "string"
+        ? config._analyticalGrain
+        : groupBy.length
+          ? groupBy.join(", ")
+          : "record";
+    const qualityProfile = profileDataset(aggregated, {
+      measureColumn: primaryMeasure,
+    });
+    return {
+      table: aggregated,
+      qualityProfile,
+      contract: {
+        version: 1,
+        kind: "table",
+        rowCount: aggregated.rows.length,
+        columns: aggregated.columns,
+        grain,
+        primaryMeasure,
+        sourceRowCount: table.rows.length,
+        transformations: [
+          {
+            type: "aggregate",
+            groupBy,
+            metrics,
+          },
+        ],
+        warnings: qualityProfile.warnings,
+      },
+    };
   },
 };

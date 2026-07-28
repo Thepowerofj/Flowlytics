@@ -4,13 +4,13 @@ Last updated: 2026-07-28
 
 # Current goal
 
-Implement the Trusted Analytics Core plan: make Guided Ask the primary spreadsheet workflow, repair execution correctness, and upgrade analytics, forecasting, reports, exports, and Builder data quality.
+Trusted Analytics Core implemented locally: Guided Ask is the primary spreadsheet workflow, execution correctness gates are repaired, and analytics, forecasting, reports, exports, and Builder diagnostics have been upgraded.
 
 Public repo: https://github.com/Thepowerofj/Flowlytics
 
 # Current slice
 
-Correctness and release gates for Trusted Analytics Core.
+Post-implementation verification and polish for Trusted Analytics Core.
 
 # Completed
 
@@ -25,19 +25,21 @@ Correctness and release gates for Trusted Analytics Core.
 - **Connectors:** `ingest.url`, `output.email`, `output.presentation` blocks
 - **Ask reliability:** compact JSON/context handling, chat-embedded pipeline progress, auto-heal reruns, chart metadata normalization
 - **Correctness gate slice:** retry-from-block hydrates previous successful upstream outputs or replays the graph, worker claims are concurrency-safe with stale-lock reclaim and per-worker heartbeats, Excel reload preserves selected sheet/range, URL ingest is HTTPS-only with private-network and size guards
-- Tests: full Vitest suite passing (`npm test` — 45 files / 185 tests); typecheck clean (`npx tsc --noEmit`); production build passing (`npm run build`)
+- **Guided Ask:** home primary CTA routes to `/ask`; drag/drop upload, Excel sheet/range reparse, PII acknowledgement, explicit AI opt-in, Go-ahead clarify flow, thread-switch polling cancellation, and resumable run polling
+- **Analytics core:** dataset quality profiling, duplicate-period detection, transactional period aggregation before forecasts, table contracts, consistent primary measure/grain metadata, and safer CSV/table preview selection
+- **Forecast trust:** month/quarter/week/fiscal labels, readiness diagnostics, eligible method comparison, MAE/RMSE/sMAPE/bias metrics, horizon-widening intervals, scenarios, and Ask Forecast Trust panel
+- **Decision results:** richer Ask result metadata, forecast validation/caveat presentation slides, full-data CSV selection from analytical tables, and Builder output contract summaries
+- Tests: full Vitest suite passing (`npm test` — 46 files / 190 tests); typecheck clean (`npx tsc --noEmit`); production build passing (`npm run build`)
 
 # In progress
 
-- Trusted Analytics Core todo `correctness-gates`; audit canvas created at Cursor canvas `trusted-analytics-audit.canvas.tsx`
+- Trusted Analytics Core implementation complete; final full-suite/typecheck/build checkpoint passing
 
 # Next
 
-1. Add full CI/E2E harness and remaining realistic fixtures
-2. Guided Ask upload/profile/clarify/run workflow upgrades
-3. Grain-aware analytics and export routing
-4. First-class forecast diagnostics, validation, intervals, scenarios, and trust UI
-5. Decision-ready reports and Builder contract/provenance upgrades
+1. Run final full test/typecheck/build after this slice
+2. Add full Playwright golden paths for browser-level acceptance
+3. Production VPS deploy only with explicit approval
 
 # Decisions and assumptions
 
@@ -56,7 +58,7 @@ Correctness and release gates for Trusted Analytics Core.
 # Verification status
 
 - types: pass (`pnpm exec tsc --noEmit`)
-- tests: pass (`npm test` — 45 files / 185 tests)
+- tests: pass (`npm test` — 46 files / 190 tests)
 - typecheck: pass (`npx tsc --noEmit`)
 - build: pass (`npm run build`; existing non-blocking React hook dependency warnings remain)
 - deployment: local Docker Compose Postgres on **5433**; VPS not authorised

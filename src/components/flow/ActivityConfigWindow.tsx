@@ -86,6 +86,37 @@ type Props = {
   onSelectSource?: (sourceNodeId: string) => void;
 };
 
+function OutputContractSummary({ config }: { config: Record<string, unknown> }) {
+  const contract = config._runContract as
+    | {
+        kind?: string;
+        rowCount?: number;
+        grain?: string;
+        primaryMeasure?: string;
+        warnings?: string[];
+      }
+    | undefined;
+  if (!contract) return null;
+  const warnings = Array.isArray(contract.warnings) ? contract.warnings : [];
+  return (
+    <section className="mb-3 rounded-xl border border-border bg-bg/80 px-3 py-2 text-xs text-muted">
+      <p className="font-semibold text-ink">Output contract</p>
+      <p>
+        {contract.kind ?? "table"} · {formatCount(contract.rowCount ?? 0)} rows
+        {contract.grain ? ` · grain: ${contract.grain}` : ""}
+        {contract.primaryMeasure ? ` · measure: ${contract.primaryMeasure}` : ""}
+      </p>
+      {warnings.length ? (
+        <ul className="mt-1 list-disc pl-4">
+          {warnings.slice(0, 3).map((warning) => (
+            <li key={warning}>{warning}</li>
+          ))}
+        </ul>
+      ) : null}
+    </section>
+  );
+}
+
 export function ActivityConfigWindow({
   nodeId,
   data,
@@ -159,6 +190,7 @@ export function ActivityConfigWindow({
               Preview sample (up to {PREVIEW_SAMPLE_ROWS} rows) · Run for full data
             </p>
           ) : null}
+          <OutputContractSummary config={data.config} />
           {onSelectSource ? (
             <SourceDataPicker
               blockType={data.blockType}

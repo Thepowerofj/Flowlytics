@@ -3272,6 +3272,104 @@ button.chart-viz__bar-col {
   color: var(--ink);
 }
 
+.ask-forecast-trust {
+  border-radius: 0.8rem;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  padding: 0.75rem;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.ask-forecast-trust__head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.75rem;
+  margin-bottom: 0.4rem;
+  font-size: 0.7rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--ink);
+}
+
+.ask-forecast-trust__leaderboard {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 0.35rem;
+  margin: 0.45rem 0;
+}
+
+.ask-forecast-trust__leaderboard span {
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  padding: 0.2rem 0.45rem;
+  background: white;
+}
+
+.ask-forecast-trust ul {
+  margin-top: 0.45rem;
+  list-style: disc;
+  padding-left: 1rem;
+}
+
+.ask-dropzone {
+  border-radius: 0.9rem;
+  border: 1px dashed transparent;
+  padding: 0.25rem;
+  transition:
+    border-color 160ms ease,
+    background 160ms ease;
+}
+
+.ask-dropzone--active {
+  border-color: color-mix(in srgb, var(--accent) 55%, var(--border));
+  background: color-mix(in srgb, var(--accent-soft) 35%, transparent);
+}
+
+.ask-dropzone__hint {
+  border-radius: 0.75rem;
+  border: 1px dashed var(--border);
+  background: var(--bg);
+  padding: 0.65rem 0.75rem;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.ask-upload-options {
+  display: grid;
+  gap: 0.5rem;
+}
+
+@media (min-width: 640px) {
+  .ask-upload-options {
+    grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  }
+}
+
+.ask-pii,
+.ask-ai-optin {
+  display: flex;
+  align-items: flex-start;
+  gap: 0.55rem;
+  border-radius: 0.75rem;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  padding: 0.6rem 0.75rem;
+  font-size: 0.78rem;
+  color: var(--muted);
+}
+
+.ask-pii input,
+.ask-ai-optin input {
+  margin-top: 0.15rem;
+}
+
+.ask-pii {
+  border-color: color-mix(in srgb, var(--warning) 35%, var(--border));
+}
+
 .ask-status-line {
   font-size: 0.75rem;
   font-weight: 600;
