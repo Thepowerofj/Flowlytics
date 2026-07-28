@@ -15,6 +15,7 @@ import { blockLabel, getBlockMeta } from "@/modules/blocks/catalog";
 import { applyTableTransforms } from "@/modules/ingest/domain/columnTransform";
 import { suggestCleanMapConfig } from "@/modules/ingest/domain/suggestCleanMap";
 import { alignFlowGraph } from "./flowLayout";
+import { finalizeAutoPipelineGraph } from "./pipelineRepair";
 
 export type PipelineArchetype =
   | "timeseries"
@@ -501,22 +502,100 @@ export function materializeAutoPipelineGraph(
       };
     }
 
-    // Seed chart/forecast/aggregate from upstream (post-clean when available)
+    // Always rebind column-dependent configs from the *current* upstream table.
+    // Plan heuristics use the raw ingest profile; Clean/Aggregate can reshape
+    // columns — stale x/y/measure/export lists become Builder errors.
     if (prevTable?.columns?.length) {
-      if (step.type === "analyse.chart" && !step.config?.chartType) {
+      if (step.type === "transform.aggregate") {
+        const cols = new Set(prevTable.columns);
+        const plannedGroup = Array.isArray(config.groupBy)
+          ? (config.groupBy as string[]).filter((c) => cols.has(c))
+          : [];
+        const plannedMetrics = Array.isArray(config.metrics)
+          ? (
+              config.metrics as {
+                op: string;
+                column?: string;
+                as?: string;
+              }[]
+            ).filter(
+              (m) =>
+                m.op === "count" ||
+                !m.column ||
+                cols.has(m.column),
+            )
+          : [];
+        if (plannedGroup.length && plannedMetrics.length) {
+          config = {
+            ...config,
+            groupBy: plannedGroup,
+            metrics: plannedMetrics,
+          };
+        } else {
+          const profile = profileTable(prevTable);
+          const fresh =
+            profile.periodCol && (step.label || "").toLowerCase().includes("period")
+              ? periodAggregateConfig(profile)
+              : aggregateConfig(profile);
+          config = { ...config, ...fresh };
+        }
+      }
+
+      if (step.type === "analyse.chart") {
         config = { ...config, ...chartConfig(prevTable) };
       }
-      if (step.type === "analyse.projection" && !step.config?.column) {
-        config = { ...config, ...forecastConfig(profileTable(prevTable)) };
+
+      if (step.type === "analyse.projection") {
+        const profile = profileTable(prevTable);
+        const goalPrompt =
+          typeof config.goalPrompt === "string"
+            ? config.goalPrompt
+            : typeof step.config?.goalPrompt === "string"
+              ? (step.config.goalPrompt as string)
+              : "";
+        const fresh = forecastConfig(profile, goalPrompt);
+        const keepColumn =
+          typeof config.column === "string" &&
+          prevTable.columns.includes(config.column)
+            ? config.column
+            : fresh.column;
+        const keepPeriod =
+          typeof config.periodColumn === "string" &&
+          prevTable.columns.includes(config.periodColumn) &&
+          config.periodColumn !== keepColumn
+            ? config.periodColumn
+            : fresh.periodColumn;
+        config = {
+          ...config,
+          ...fresh,
+          column: keepColumn,
+          periodColumn: keepPeriod,
+          periods: Number(config.periods ?? fresh.periods ?? 3),
+          method: (config.method as string) || (fresh.method as string) || "trend",
+          goalPrompt: goalPrompt || (fresh.goalPrompt as string) || "",
+        };
       }
-      if (step.type === "transform.aggregate" && !step.config?.groupBy) {
-        config = { ...config, ...aggregateConfig(profileTable(prevTable)) };
+
+      if (step.type === "output.structure") {
+        const selected = Array.isArray(config.selectedColumns)
+          ? (config.selectedColumns as string[]).filter((c) =>
+              prevTable!.columns.includes(c),
+            )
+          : [];
+        config = {
+          ...config,
+          selectedColumns: selected.length ? selected : [...prevTable.columns],
+          fileName:
+            (config.fileName as string) ||
+            (step.config?.fileName as string) ||
+            "flowlytics-export.csv",
+        };
       }
+
       if (
         step.type !== "ingest.csv_excel" &&
         step.type !== "ai.structure" &&
-        step.type !== "transform.clean_map" &&
-        !config.table
+        step.type !== "transform.clean_map"
       ) {
         config = {
           ...config,
@@ -531,7 +610,9 @@ export function materializeAutoPipelineGraph(
     }
 
     if (step.type === "transform.aggregate" && prevTable?.columns?.length) {
-      const groupBy = (config.groupBy as string[] | undefined) ?? [];
+      const groupBy = Array.isArray(config.groupBy)
+        ? (config.groupBy as string[])
+        : [];
       const metrics =
         (config.metrics as
           | Parameters<typeof aggregateTable>[1]["metrics"]
@@ -545,7 +626,7 @@ export function materializeAutoPipelineGraph(
       }
     }
 
-    if (step.type.startsWith("ai.") && config.aiOptIn == null) {
+    if (step.type.startsWith("ai.")) {
       config.aiOptIn = true;
     }
 
@@ -572,7 +653,7 @@ export function materializeAutoPipelineGraph(
     prevId = id;
   });
 
-  return alignFlowGraph({ nodes, edges });
+  return finalizeAutoPipelineGraph(alignFlowGraph({ nodes, edges }));
 }
 
 export function suggestFlowName(plan: AutoPipelinePlan, fileName?: string): string {

@@ -10,7 +10,7 @@ Public repo: https://github.com/Thepowerofj/Flowlytics
 
 # Current slice
 
-Builder canvas crash fix (round 2): harden live `bindConfigToUpstream` / `previewOutputTable` paths that run on every canvas paint, plus per-activity error boundaries.
+Auto-pipeline build finalization: repair column bindings and validation errors before the Builder canvas is shown.
 
 # Completed
 
@@ -31,10 +31,11 @@ Builder canvas crash fix (round 2): harden live `bindConfigToUpstream` / `previe
 - **Decision results:** richer Ask result metadata, forecast validation/caveat presentation slides, full-data CSV selection from analytical tables, and Builder output contract summaries
 - **Builder crash harden:** `tablePreview` requires array columns/rows; `InsightCard` / Stats / Aggregate / Structure / ActivityNode coerce compacted insights/metrics/rows; forecast canvas preview skips full method leaderboard (`compareMethods: []`); run path still auto-compares when compare list omitted
 - **Builder crash harden (paint path):** `previewOutputTable`/`sampleTable` reject non-array tables; `autoMapOnConnect` coerces metrics/groupBy/selectedColumns/dropColumns; FlowEditor catches bind failures; ActivityNode + config window error boundaries isolate bad activities
+- **Auto-pipeline finalize:** materialize always rebinds chart/forecast/aggregate/export columns from post-clean/post-aggregate tables; `repairAutoPipelineGraph` fixes remaining checkFlow errors (AI opt-in, PII ack, wiring, dead forecast) before save/view
 
 # In progress
 
-- Manual smoke after hard refresh: open Builder activities that previously white-screened
+- Manual smoke: build pipeline from a spreadsheet and confirm Builder shows no wiring/config errors
 
 # Next
 

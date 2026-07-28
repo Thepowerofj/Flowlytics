@@ -5,6 +5,7 @@ import {
   planAutoPipeline,
   profileTable,
 } from "./autoPipeline";
+import { checkFlow } from "./flowChecks";
 
 describe("autoPipeline", () => {
   it("profiles date + measure as timeseries-friendly", () => {
@@ -182,6 +183,51 @@ describe("autoPipeline", () => {
     for (let i = 1; i < ordered.length; i++) {
       expect(ordered[i]!.x).toBeGreaterThan(ordered[i - 1]!.x);
     }
+  });
+
+  it("repairs stale chart/export columns after aggregate before Builder sees errors", () => {
+    const table = {
+      columns: ["Region", "Sales"],
+      rows: [
+        { Region: "North", Sales: 10 },
+        { Region: "South", Sales: 20 },
+        { Region: "North", Sales: 5 },
+        { Region: "East", Sales: 8 },
+      ],
+    };
+    const plan = planAutoPipeline({ table, enableAi: false });
+    expect(plan.steps.map((s) => s.type)).toContain("transform.aggregate");
+    const graph = materializeAutoPipelineGraph(plan, {
+      fileId: "f2",
+      fileName: "regions.csv",
+      table,
+    });
+
+    const chart = graph.nodes.find((n) => n.type === "analyse.chart");
+    const chartCols = (chart?.config._sourceColumns as string[]) ?? [];
+    const x = chart?.config.xColumn as string;
+    const y = chart?.config.yColumn as string;
+    expect(chartCols.length).toBeGreaterThan(0);
+    if (x && x !== "__row__") expect(chartCols).toContain(x);
+    if (y && y !== "__count__") expect(chartCols).toContain(y);
+
+    const structure = graph.nodes.find((n) => n.type === "output.structure");
+    const selected = structure?.config.selectedColumns as string[];
+    expect(Array.isArray(selected)).toBe(true);
+    expect(selected.every((c) => chartCols.includes(c) || (structure?.config._sourceColumns as string[])?.includes(c))).toBe(true);
+
+    const issues = checkFlow(
+      graph.nodes.map((n) => ({
+        id: n.id,
+        data: {
+          blockType: n.type,
+          label: n.type,
+          config: n.config,
+        },
+      })),
+      graph.edges.map((e) => ({ source: e.source, target: e.target })),
+    );
+    expect(issues.filter((i) => i.severity === "error")).toEqual([]);
   });
 
   it("can extract a file-only ingest seed for server-side reload", () => {
