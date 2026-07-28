@@ -43,12 +43,24 @@ export function AiConfigPanel({ blockType, config, readOnly, onChange }: Props) 
   const upstreamColumns = Array.isArray(config._upstreamColumns)
     ? (config._upstreamColumns as string[])
     : [];
-  const upstreamPreview = config._upstreamPreview as TabularData | null | undefined;
-  const runTable =
+  const runTableRaw =
     (config._runOutputTable as TabularData | undefined) ??
     (config._previewSample === false
       ? (config.table as TabularData | undefined)
       : undefined);
+  const runTable =
+    runTableRaw &&
+    Array.isArray(runTableRaw.columns) &&
+    Array.isArray(runTableRaw.rows)
+      ? runTableRaw
+      : undefined;
+  const upstreamPreviewRaw = config._upstreamPreview as TabularData | null | undefined;
+  const upstreamPreview =
+    upstreamPreviewRaw &&
+    Array.isArray(upstreamPreviewRaw.columns) &&
+    Array.isArray(upstreamPreviewRaw.rows)
+      ? upstreamPreviewRaw
+      : null;
   const hasInput = upstreamColumns.length > 0 || Boolean((config.rawText as string)?.trim());
   const builderLocksAi = columns.length > 0;
   const suggestionDiffers =

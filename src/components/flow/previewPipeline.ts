@@ -20,13 +20,25 @@ import {
 /** Rows used for canvas / config previews only. Full data runs on Run. */
 export const PREVIEW_SAMPLE_ROWS = 25;
 
+function isTabular(value: unknown): value is TabularData {
+  if (!value || typeof value !== "object") return false;
+  const t = value as TabularData;
+  return Array.isArray(t.columns) && Array.isArray(t.rows);
+}
+
 export function sampleTable(
   table: TabularData,
   limit: number = PREVIEW_SAMPLE_ROWS,
 ): TabularData {
+  const columns = Array.isArray(table.columns)
+    ? table.columns.filter((c): c is string => typeof c === "string")
+    : [];
+  const rows = Array.isArray(table.rows) ? table.rows : [];
   return {
-    columns: [...table.columns],
-    rows: table.rows.slice(0, limit).map((row) => ({ ...row })),
+    columns: [...columns],
+    rows: rows.slice(0, limit).map((row) =>
+      row && typeof row === "object" ? { ...row } : {},
+    ),
   };
 }
 
@@ -40,13 +52,14 @@ export function previewOutputTable(
 ): TabularData | null {
   // AI Structure emits a *new* table — never passthrough the upstream input.
   if (blockType === "ai.structure") {
-    const runOut = config._runOutputTable as TabularData | undefined;
-    if (runOut?.columns?.length) return sampleTable(runOut);
-    const table = config.table as TabularData | undefined;
+    const runOut = config._runOutputTable;
+    if (isTabular(runOut) && runOut.columns.length) return sampleTable(runOut);
+    const table = config.table;
     const schema = normalizeOutputColumns(config.outputColumns);
     // After a successful Run, config.table is the structured output
     if (
-      table?.columns?.length &&
+      isTabular(table) &&
+      table.columns.length &&
       config._previewSample === false &&
       (!schema.length || schema.every((c) => table.columns.includes(c.name)))
     ) {
@@ -55,15 +68,27 @@ export function previewOutputTable(
     return previewTableFromSchema(schema);
   }
 
-  const table = config.table as TabularData | undefined;
-  if (!table?.columns?.length) return null;
+  const table = config.table;
+  if (!isTabular(table) || !table.columns.length) return null;
 
   const sampled = sampleTable(table);
 
   if (blockType === "transform.clean_map") {
-    const dropColumns = (config.dropColumns as string[]) ?? [];
-    const columnMap = (config.columnMap as Record<string, string>) ?? {};
-    const transforms = (config.transforms as Record<string, ColumnTransform>) ?? {};
+    const dropColumns = Array.isArray(config.dropColumns)
+      ? (config.dropColumns as string[]).filter((c) => typeof c === "string")
+      : [];
+    const columnMap =
+      config.columnMap &&
+      typeof config.columnMap === "object" &&
+      !Array.isArray(config.columnMap)
+        ? (config.columnMap as Record<string, string>)
+        : {};
+    const transforms =
+      config.transforms &&
+      typeof config.transforms === "object" &&
+      !Array.isArray(config.transforms)
+        ? (config.transforms as Record<string, ColumnTransform>)
+        : {};
     const withDefaults: Record<string, ColumnTransform> = { ...transforms };
     for (const c of sampled.columns) {
       if (!withDefaults[c]) withDefaults[c] = defaultColumnTransform();
@@ -80,10 +105,18 @@ export function previewOutputTable(
   }
 
   if (blockType === "transform.aggregate") {
-    const groupBy = (config.groupBy as string[]) ?? [];
-    const metrics = (config.metrics as AggregateMetric[]) ?? [];
+    const groupBy = Array.isArray(config.groupBy)
+      ? (config.groupBy as string[]).filter((c) => typeof c === "string")
+      : [];
+    const metrics = Array.isArray(config.metrics)
+      ? (config.metrics as AggregateMetric[])
+      : [];
     if (!groupBy.length && !metrics.length) return sampled;
-    return aggregateTable(sampled, { groupBy, metrics });
+    try {
+      return aggregateTable(sampled, { groupBy, metrics });
+    } catch {
+      return sampled;
+    }
   }
 
   if (blockType === "analyse.projection") {

@@ -38,6 +38,7 @@ import { AiInsightShowcase } from "./AiInsightShowcase";
 import { ForecastKpiStrip } from "./InsightCard";
 import { StatsInfoBlock } from "./StatsInfoBlock";
 import { StructureOutputPanel } from "./StructureOutputPanel";
+import { ActivityErrorBoundary } from "./ActivityErrorBoundary";
 
 function asStringList(value: unknown): string[] {
   if (Array.isArray(value)) {
@@ -187,7 +188,15 @@ function summaryFor(data: ActivityNodeData): string {
   return "Connect upstream to auto-map";
 }
 
-export function ActivityNode({
+export function ActivityNode(props: NodeProps<ActivityNodeType>) {
+  return (
+    <ActivityErrorBoundary label={props.data?.blockType ?? "activity"}>
+      <ActivityNodeInner {...props} />
+    </ActivityErrorBoundary>
+  );
+}
+
+function ActivityNodeInner({
   id,
   data,
   selected,

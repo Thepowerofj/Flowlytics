@@ -712,15 +712,23 @@ function FlowEditorInner({ flowId, initialName, initialGraph }: Props) {
         ? nodes.find((u) => u.id === incoming.source)
         : undefined;
       // Live bind so canvas/config always show post-transform columns
-      const boundConfig =
-        upstream && portsFor(n.data.blockType).hasInput
-          ? bindConfigToUpstream(
-              n.data.blockType,
-              n.data.config,
-              upstream.data.blockType,
-              upstream.data.config,
-            )
-          : n.data.config;
+      let boundConfig = n.data.config;
+      if (upstream && portsFor(n.data.blockType).hasInput) {
+        try {
+          boundConfig = bindConfigToUpstream(
+            n.data.blockType,
+            n.data.config,
+            upstream.data.blockType,
+            upstream.data.config,
+          );
+        } catch (error) {
+          console.error(
+            `[Flowlytics] bindConfigToUpstream failed for ${n.id}:`,
+            error,
+          );
+          boundConfig = n.data.config;
+        }
+      }
 
       // Prefer this activity's full-run step output (stats/chart/structure/etc.).
       // Clean/Map & Aggregate keep `table` as input — see mergeRunOutputIntoConfig.
@@ -870,14 +878,23 @@ function FlowEditorInner({ flowId, initialName, initialGraph }: Props) {
     const upstream = incoming
       ? nodes.find((n) => n.id === incoming.source)
       : undefined;
-    const bound = upstream
-      ? bindConfigToUpstream(
+    const bound = (() => {
+      if (!upstream) return node.data.config;
+      try {
+        return bindConfigToUpstream(
           node.data.blockType,
           node.data.config,
           upstream.data.blockType,
           upstream.data.config,
-        )
-      : node.data.config;
+        );
+      } catch (error) {
+        console.error(
+          `[Flowlytics] bindConfigToUpstream failed for config ${node.id}:`,
+          error,
+        );
+        return node.data.config;
+      }
+    })();
     // Config window should show full-run tables when available (same as canvas).
     // Clean/Map & Aggregate keep input `table` — not their own step output.
     let config = mergeRunOutputIntoConfig(

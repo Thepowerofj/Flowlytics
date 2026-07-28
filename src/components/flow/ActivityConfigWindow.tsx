@@ -39,6 +39,7 @@ import { ForecastKpiStrip, InsightCard } from "./InsightCard";
 import { MiniChart } from "./MiniChart";
 import type { AggregateMetric } from "@/modules/analyse/domain/aggregate";
 import { AggregateConfig } from "./AggregateConfig";
+import { ActivityErrorBoundary } from "./ActivityErrorBoundary";
 import { CleanMapConfig } from "./CleanMapConfig";
 import { StructureOutputPanel } from "./StructureOutputPanel";
 import { availableColumns } from "./autoMap";
@@ -48,6 +49,36 @@ import { DatasetNameField } from "./DatasetNameField";
 import { SourceDataPicker } from "./SourceDataPicker";
 import type { AncestorSource } from "./upstreamSources";
 
+function asStringList(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.filter((v): v is string => typeof v === "string");
+  }
+  if (typeof value === "string" && value.trim()) {
+    return value
+      .split(/[\n,]+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+  }
+  return [];
+}
+
+function asPiiFindings(
+  value: unknown,
+): { column: string; kind: string }[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((f): f is { column: string; kind: string } =>
+      Boolean(
+        f &&
+          typeof f === "object" &&
+          typeof (f as { column?: unknown }).column === "string",
+      ),
+    )
+    .map((f) => ({
+      column: f.column,
+      kind: typeof f.kind === "string" ? f.kind : "pii",
+    }));
+}
 function columnFormatsOf(
   config: Record<string, unknown>,
 ): Record<string, ColumnDisplayFormat> {
@@ -117,7 +148,43 @@ function OutputContractSummary({ config }: { config: Record<string, unknown> }) 
   );
 }
 
-export function ActivityConfigWindow({
+export function ActivityConfigWindow(props: Props) {
+  return (
+    <ActivityErrorBoundary
+      label={props.data.blockType}
+      fallback={
+        <div className="config-window-backdrop" role="presentation" onClick={props.onClose}>
+          <div
+            className="config-window settle"
+            role="dialog"
+            aria-modal="true"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <header className="flex items-start justify-between gap-3 border-b border-border px-5 py-3.5">
+              <div>
+                <p className="text-[11px] font-semibold uppercase tracking-[0.08em] text-muted">
+                  Configure activity
+                </p>
+                <h2 className="text-lg font-semibold tracking-tight">{props.data.label}</h2>
+              </div>
+              <button type="button" className="btn btn-sm btn-secondary" onClick={props.onClose}>
+                Done
+              </button>
+            </header>
+            <div className="px-5 py-4 text-sm text-muted">
+              This activity’s settings could not be opened (bad or compacted data). Close and
+              re-run the flow, or delete the activity.
+            </div>
+          </div>
+        </div>
+      }
+    >
+      <ActivityConfigWindowInner {...props} />
+    </ActivityErrorBoundary>
+  );
+}
+
+function ActivityConfigWindowInner({
   nodeId,
   data,
   onClose,
@@ -209,11 +276,11 @@ export function ActivityConfigWindow({
               fileName={(data.config.fileName as string) || ""}
               fileId={(data.config.fileId as string) || ""}
               table={table}
-              sheetNames={(data.config.sheetNames as string[]) ?? []}
+              sheetNames={asStringList(data.config.sheetNames)}
               excelSheet={(data.config.excelSheet as string) || ""}
               excelRange={(data.config.excelRange as string) || ""}
               uploadError={(data.config.uploadError as string) || ""}
-              piiFindings={(data.config.piiFindings as { column: string; kind: string }[]) ?? []}
+              piiFindings={asPiiFindings(data.config.piiFindings)}
               piiAcknowledged={Boolean(data.config.piiAcknowledged)}
               readOnly={readOnly}
               fileRef={fileRef}
@@ -307,17 +374,29 @@ export function ActivityConfigWindow({
                     ? table.columns
                     : Array.isArray(data.config._sourceColumns) &&
                         (data.config._sourceColumns as string[]).length
-                      ? (data.config._sourceColumns as string[])
+                      ? (data.config._sourceColumns as string[]).filter(
+                          (c): c is string => typeof c === "string",
+                        )
                       : sourceColumns
                 }
-                columnMap={(data.config.columnMap as Record<string, string>) ?? {}}
-                dropColumns={(data.config.dropColumns as string[]) ?? []}
+                columnMap={
+                  data.config.columnMap &&
+                  typeof data.config.columnMap === "object" &&
+                  !Array.isArray(data.config.columnMap)
+                    ? (data.config.columnMap as Record<string, string>)
+                    : {}
+                }
+                dropColumns={asStringList(data.config.dropColumns)}
                 transforms={
-                  (data.config.transforms as Record<string, ColumnTransform>) ?? {}
+                  data.config.transforms &&
+                  typeof data.config.transforms === "object" &&
+                  !Array.isArray(data.config.transforms)
+                    ? (data.config.transforms as Record<string, ColumnTransform>)
+                    : {}
                 }
                 sampleRows={
                   // Input sample only (pre-transform). Preview applies cleans live.
-                  table?.rows?.slice(0, 12) ?? []
+                  Array.isArray(table?.rows) ? table.rows.slice(0, 12) : []
                 }
                 datasetName={(data.config.datasetName as string) ?? ""}
                 onChange={(next) => applyPatch(nodeId, next)}

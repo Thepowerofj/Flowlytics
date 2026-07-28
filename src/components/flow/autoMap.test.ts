@@ -464,3 +464,48 @@ describe("propagatePreviewFrom", () => {
     expect(structureCfg._sourceColumns).toEqual(["Region", "Sales"]);
   });
 });
+
+describe("autoMapOnConnect corrupt config", () => {
+  const upstream = {
+    table: {
+      columns: ["Region", "Sales"],
+      rows: [{ Region: "North", Sales: 10 }],
+    },
+  };
+
+  it("does not throw when aggregate metrics/groupBy are non-arrays", () => {
+    expect(() =>
+      autoMapOnConnect("ingest.csv_excel", upstream, "transform.aggregate", {
+        metrics: "sum(Sales)",
+        groupBy: "Region",
+      }),
+    ).not.toThrow();
+    const result = autoMapOnConnect(
+      "ingest.csv_excel",
+      upstream,
+      "transform.aggregate",
+      { metrics: "sum(Sales)", groupBy: "Region" },
+    );
+    expect(Array.isArray(result.metrics)).toBe(true);
+    expect(Array.isArray(result.groupBy)).toBe(true);
+  });
+
+  it("does not throw when selectedColumns is a string", () => {
+    expect(() =>
+      autoMapOnConnect("ingest.csv_excel", upstream, "output.structure", {
+        selectedColumns: "Region,Sales",
+      }),
+    ).not.toThrow();
+  });
+
+  it("does not throw when upstream table rows are missing", () => {
+    expect(
+      autoMapOnConnect(
+        "ingest.csv_excel",
+        { table: { columns: ["A"], rows: "compacted" } },
+        "analyse.chart",
+        {},
+      ).table,
+    ).toBeNull();
+  });
+});

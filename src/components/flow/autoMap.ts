@@ -18,6 +18,41 @@ import { defaultColumnTransform } from "@/modules/ingest/domain/columnTransform"
 import { suggestColumnTransform } from "@/modules/ingest/domain/suggestCleanMap";
 import { previewOutputTable } from "./previewPipeline";
 
+/** Coerce config fields that are often corrupted to plain strings by JSON compact. */
+function asStringList(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.filter((v): v is string => typeof v === "string");
+  }
+  if (typeof value === "string" && value.trim()) {
+    return value
+      .split(/[\n,]+/)
+      .map((s) => s.trim())
+      .filter(Boolean);
+  }
+  return [];
+}
+
+function asMetricList(value: unknown): AggregateMetric[] {
+  if (!Array.isArray(value)) return [];
+  return value.filter(
+    (m): m is AggregateMetric =>
+      Boolean(m) &&
+      typeof m === "object" &&
+      typeof (m as AggregateMetric).op === "string",
+  );
+}
+
+function asRecord(value: unknown): Record<string, string> {
+  if (value && typeof value === "object" && !Array.isArray(value)) {
+    const out: Record<string, string> = {};
+    for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
+      if (typeof v === "string") out[k] = v;
+    }
+    return out;
+  }
+  return {};
+}
+
 function resolveUpstreamFormats(
   sourceType: string,
   sourceConfig: Record<string, unknown>,
@@ -169,8 +204,7 @@ export function autoMapOnConnect(
   }
   const columns = table.columns;
 
-  const sourceColumnMap =
-    (sourceConfig.columnMap as Record<string, string> | undefined) ?? {};
+  const sourceColumnMap = asRecord(sourceConfig.columnMap);
   const upstreamFormats = resolveUpstreamFormats(sourceType, sourceConfig);
 
   const base = {
@@ -186,10 +220,16 @@ export function autoMapOnConnect(
   switch (targetType) {
     case "transform.clean_map": {
       // Clean/Map stores upstream output as its *input* table
-      const existing = (targetConfig.columnMap as Record<string, string>) ?? {};
+      const existing = asRecord(targetConfig.columnMap);
       const existingTransforms =
-        (targetConfig.transforms as Record<string, ReturnType<typeof defaultColumnTransform>>) ??
-        {};
+        targetConfig.transforms &&
+        typeof targetConfig.transforms === "object" &&
+        !Array.isArray(targetConfig.transforms)
+          ? (targetConfig.transforms as Record<
+              string,
+              ReturnType<typeof defaultColumnTransform>
+            >)
+          : {};
       const columnMap: Record<string, string> = {};
       const transforms: Record<string, ReturnType<typeof defaultColumnTransform>> = {};
       for (const col of columns) {
@@ -199,7 +239,7 @@ export function autoMapOnConnect(
           existingTransforms[col] ?? suggestColumnTransform(table, col);
       }
       // Drop list can only reference current input columns
-      const dropColumns = ((targetConfig.dropColumns as string[]) ?? []).filter((c) =>
+      const dropColumns = asStringList(targetConfig.dropColumns).filter((c) =>
         columns.includes(c),
       );
       const nextCfg = { columnMap, transforms, dropColumns, _sourceColumns: columns };
@@ -211,11 +251,11 @@ export function autoMapOnConnect(
       };
     }
     case "transform.aggregate": {
-      const existingGroup = ((targetConfig.groupBy as string[]) ?? []).filter((c) =>
+      const existingGroup = asStringList(targetConfig.groupBy).filter((c) =>
         columns.includes(c),
       );
       const numeric = numericColumns(table);
-      const existingMetrics = (targetConfig.metrics as AggregateMetric[]) ?? [];
+      const existingMetrics = asMetricList(targetConfig.metrics);
       const metrics: AggregateMetric[] =
         existingMetrics.length > 0
           ? existingMetrics.map((m) => ({
@@ -250,7 +290,7 @@ export function autoMapOnConnect(
       };
     }
     case "output.structure": {
-      const selected = (targetConfig.selectedColumns as string[]) ?? [];
+      const selected = asStringList(targetConfig.selectedColumns);
       const remapped = onlyAvailable(
         selected.map((c) => remapColumn(c, columns, sourceColumnMap, "")).filter(Boolean),
         columns,
