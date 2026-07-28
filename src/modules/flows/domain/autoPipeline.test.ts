@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  extractIngestSeedFromGraph,
   materializeAutoPipelineGraph,
   planAutoPipeline,
   profileTable,
@@ -23,10 +24,32 @@ describe("autoPipeline", () => {
     expect(plan.archetype).toBe("timeseries");
     expect(plan.steps.map((s) => s.type)).toContain("analyse.projection");
     expect(plan.steps.map((s) => s.type)).toContain("ai.analyse");
+    expect(plan.steps.map((s) => s.type)).toContain("output.presentation");
     // Forecast owns the chart (teal + orange); no separate history-only Chart step
     expect(plan.steps.map((s) => s.type)).not.toContain("analyse.chart");
     const forecast = plan.steps.find((s) => s.type === "analyse.projection");
     expect(forecast?.config?.column).toBe("Sales");
+  });
+
+  it("honours heal hints to skip forecast and AI", () => {
+    const plan = planAutoPipeline({
+      table: {
+        columns: ["Month", "Sales"],
+        rows: [
+          { Month: "2024-01-01", Sales: 10 },
+          { Month: "2024-02-01", Sales: 20 },
+          { Month: "2024-03-01", Sales: 30 },
+        ],
+      },
+      goal: "Forecast Sales next 6 months",
+      enableAi: true,
+      heal: { disableForecast: true, disableAi: true, disablePresentation: true },
+    });
+    const types = plan.steps.map((s) => s.type);
+    expect(types).not.toContain("analyse.projection");
+    expect(types).toContain("analyse.chart");
+    expect(types).not.toContain("ai.analyse");
+    expect(types).not.toContain("output.presentation");
   });
 
   it("does not forecast pharmacyId when Sales exists", () => {
@@ -128,5 +151,31 @@ describe("autoPipeline", () => {
     for (let i = 1; i < ordered.length; i++) {
       expect(ordered[i]!.x).toBeGreaterThan(ordered[i - 1]!.x);
     }
+  });
+
+  it("can extract a file-only ingest seed for server-side reload", () => {
+    const seed = extractIngestSeedFromGraph({
+      nodes: [
+        {
+          id: "ingest",
+          type: "ingest.csv_excel",
+          x: 0,
+          y: 0,
+          config: {
+            fileId: "file-1",
+            fileName: "sales.xlsx",
+            excelSheet: "January",
+            excelRange: "A1:D20",
+            sheetNames: ["January", "February"],
+          },
+        },
+      ],
+      edges: [],
+    });
+
+    expect(seed?.fileId).toBe("file-1");
+    expect(seed?.table).toBeUndefined();
+    expect(seed?.excelSheet).toBe("January");
+    expect(seed?.excelRange).toBe("A1:D20");
   });
 });

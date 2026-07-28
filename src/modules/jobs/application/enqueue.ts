@@ -1,6 +1,6 @@
 import { prisma } from "@/shared/lib/prisma";
 import { AppError } from "@/shared/lib/errors";
-import { toJsonValue } from "@/shared/lib/json";
+import { toJsonValueSafe } from "@/shared/lib/json";
 import { estimateEtaSeconds, fairPriority } from "../domain/queue";
 
 export async function enqueueFlowRun(input: {
@@ -34,7 +34,8 @@ export async function enqueueFlowRun(input: {
         etaSeconds,
         retryFromBlockId: input.retryFromBlockId,
         // Freeze the pipeline shape at enqueue so later edits don't change this run.
-        graphSnapshotJson: toJsonValue(flow.graphJson),
+        graphSnapshotJson: toJsonValueSafe(flow.graphJson, "graph-snapshot")
+          .value,
       },
     });
     await tx.job.create({

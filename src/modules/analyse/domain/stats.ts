@@ -28,10 +28,21 @@ function quantile(sorted: number[], q: number): number {
   return a + rest * (b - a);
 }
 
+/** Avoid Math.min(...arr) / Math.max(...arr) — spread blows the call stack on large arrays. */
+export function minMax(values: number[]): { min: number; max: number } {
+  let min = values[0]!;
+  let max = values[0]!;
+  for (let i = 1; i < values.length; i++) {
+    const v = values[i]!;
+    if (v < min) min = v;
+    if (v > max) max = v;
+  }
+  return { min, max };
+}
+
 function buildHistogram(values: number[], bins = 8): { start: number; end: number; count: number }[] {
   if (values.length < 2) return [];
-  const min = Math.min(...values);
-  const max = Math.max(...values);
+  const { min, max } = minMax(values);
   if (min === max) return [{ start: min, end: max, count: values.length }];
   const width = (max - min) / bins;
   const out = Array.from({ length: bins }, (_, i) => ({
@@ -246,6 +257,7 @@ export function computeStats(table: TabularData): ColumnStats[] {
       const variance =
         numeric.reduce((s, v) => s + (v - mean) ** 2, 0) /
         Math.max(1, numeric.length - 1);
+      const { min, max } = minMax(numeric);
       return {
         column,
         kind: "numeric" as const,
@@ -254,8 +266,8 @@ export function computeStats(table: TabularData): ColumnStats[] {
         nullPct: values.length
           ? Number(((nulls / values.length) * 100).toFixed(1))
           : 0,
-        min: Math.min(...numeric),
-        max: Math.max(...numeric),
+        min,
+        max,
         mean,
         median: Number(quantile(sorted, 0.5).toFixed(4)),
         stddev: Number(Math.sqrt(Math.max(0, variance)).toFixed(4)),

@@ -123,6 +123,12 @@ function aggregateConfig(profile: DataProfile): Record<string, unknown> {
  * Decide a full analysis pipeline from structured table and/or messy notes.
  * Deterministic heuristics first (always works offline); AI blocks opt-in when requested.
  */
+export type PipelinePlanHeal = {
+  disableForecast?: boolean;
+  disableAi?: boolean;
+  disablePresentation?: boolean;
+};
+
 export function planAutoPipeline(input: {
   table?: TabularData | null;
   rawText?: string;
@@ -131,8 +137,10 @@ export function planAutoPipeline(input: {
   goal?: string;
   /** Prior pipeline step types (Ask follow-up) — used in rationale only. */
   priorSteps?: string[];
+  /** Ask auto-heal: force a safer subset of steps after a failed run. */
+  heal?: PipelinePlanHeal;
 }): AutoPipelinePlan {
-  const enableAi = input.enableAi !== false;
+  const enableAi = input.heal?.disableAi ? false : input.enableAi !== false;
   const rawText = (input.rawText ?? "").trim();
   const table = input.table;
 
@@ -207,19 +215,26 @@ export function planAutoPipeline(input: {
   const chart = chartConfig(table);
 
   const wantForecast =
-    /forecast|predict|outlook|trend|projection|next\s+\d+/i.test(goal) ||
-    (profile.dateCols.length > 0 &&
-      Boolean(profile.measureCol) &&
-      profile.rowCount >= 3);
+    !input.heal?.disableForecast &&
+    (/forecast|predict|outlook|trend|projection|next\s+\d+/i.test(goal) ||
+      (profile.dateCols.length > 0 &&
+        Boolean(profile.measureCol) &&
+        profile.rowCount >= 3));
   const wantAggregate =
-    /by category|breakdown|segment|region|product|group by/i.test(goal) ||
-    (Boolean(profile.categoryCol) &&
-      Boolean(profile.measureCol) &&
-      profile.dateCols.length === 0 &&
-      !wantForecast);
+    !input.heal?.disableForecast &&
+    (/by category|breakdown|segment|region|product|group by/i.test(goal) ||
+      (Boolean(profile.categoryCol) &&
+        Boolean(profile.measureCol) &&
+        profile.dateCols.length === 0 &&
+        !wantForecast));
 
   let archetype: PipelineArchetype = "mixed";
   let rationale = "Balanced path: clean → explore → visualise → export.";
+
+  if (input.heal?.disableForecast) {
+    rationale =
+      "Auto-corrected path: explore with stats + chart (forecast skipped after a prior error).";
+  }
 
   if (wantForecast && profile.measureCol) {
     archetype = "timeseries";
@@ -282,6 +297,26 @@ export function planAutoPipeline(input: {
     });
   }
 
+  const wantDeck =
+    !input.heal?.disablePresentation &&
+    (/present|pptx?|powerpoint|pdf|deck|pack|executive|board|slide/i.test(
+      goal,
+    ) ||
+      enableAi);
+
+  if (wantDeck) {
+    steps.push({
+      type: "output.presentation",
+      label: "Presentation",
+      config: {
+        deckTitle:
+          archetype === "timeseries" && profile.measureCol
+            ? `${profile.measureCol} outlook`
+            : "Flowlytics insight pack",
+      },
+    });
+  }
+
   steps.push({
     type: "output.structure",
     label: "Export",
@@ -318,11 +353,11 @@ export function extractIngestSeedFromGraph(graph: FlowGraph): IngestSeed | null 
   if (!ingest) return null;
   const c = ingest.config ?? {};
   const table = c.table as TabularData | undefined;
-  if (!table?.columns?.length || !table.rows?.length) return null;
+  if (!table?.columns?.length && typeof c.fileId !== "string") return null;
   return {
     fileId: typeof c.fileId === "string" ? c.fileId : undefined,
     fileName: typeof c.fileName === "string" ? c.fileName : undefined,
-    table,
+    table: table?.columns?.length ? table : undefined,
     sheetNames: Array.isArray(c.sheetNames) ? (c.sheetNames as string[]) : undefined,
     excelSheet: (c.excelSheet as string | null | undefined) ?? null,
     excelRange: typeof c.excelRange === "string" ? c.excelRange : undefined,

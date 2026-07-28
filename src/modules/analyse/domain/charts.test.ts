@@ -1,5 +1,12 @@
 import { describe, expect, it } from "vitest";
-import { buildChartSpec, suggestCharts } from "./charts";
+import {
+  asInsightLines,
+  buildChartSpec,
+  normalizeChartSpec,
+  normalizeChartSpecs,
+  suggestCharts,
+  truncateChartPoints,
+} from "./charts";
 
 const sample = {
   columns: ["Region", "Sales"],
@@ -72,6 +79,75 @@ describe("charts", () => {
       yColumn: "Sales",
     });
     expect(chart.insights?.length).toBeGreaterThan(0);
+  });
+
+  it("coerces insights stored as a plain string (Ask meta corruption)", () => {
+    const lines = asInsightLines("Risk rising\nOpportunity in North");
+    expect(lines).toEqual(["Risk rising", "Opportunity in North"]);
+    expect(asInsightLines("single insight")).toEqual(["single insight"]);
+    expect(asInsightLines(undefined)).toEqual([]);
+    expect(asInsightLines([{ title: "Gap", detail: "South soft" }])).toEqual([
+      "Gap: South soft",
+    ]);
+  });
+
+  it("normalizes compacted/corrupt chart meta so Ask UI can render safely", () => {
+    const corrupt = {
+      type: "line",
+      title: "Sales outlook",
+      xLabel: "Month",
+      yLabel: "Sales",
+      // insights accidentally persisted as a string — previously crashed ChartInsights
+      insights: "Cost rising in Q3\nWatch margin",
+      points: [
+        { x: "Jan", y: 10 },
+        { x: "Feb", y: 12 },
+        "…+3 more",
+        { x: "bad", y: "nope" },
+      ],
+    };
+    const chart = normalizeChartSpec(corrupt);
+    expect(chart).not.toBeNull();
+    expect(Array.isArray(chart!.insights)).toBe(true);
+    expect(chart!.insights!.every((l) => typeof l === "string")).toBe(true);
+    expect(chart!.insights!.length).toBe(2);
+    expect(chart!.points.every((p) => typeof p.y === "number")).toBe(true);
+    expect(chart!.points.length).toBe(2);
+
+    // Mimic ChartInsights: must support .slice().map
+    expect(
+      chart!.insights!.slice(0, 3).map((line) => line.length),
+    ).toEqual([expect.any(Number), expect.any(Number)]);
+
+    const list = normalizeChartSpecs([corrupt, null, { type: "bar" }, chart]);
+    expect(list.length).toBe(2);
+  });
+
+  it("rejects charts without usable points", () => {
+    expect(
+      normalizeChartSpec({
+        type: "bar",
+        title: "Empty",
+        points: [],
+      }),
+    ).toBeNull();
+  });
+
+  it("keeps forecast points when truncating long history", () => {
+    const points = [
+      ...Array.from({ length: 40 }, (_, i) => ({
+        x: `H${i}`,
+        y: i,
+        series: "Actual" as const,
+      })),
+      { x: "F1", y: 99, series: "Forecast" as const },
+      { x: "F2", y: 100, series: "Forecast" as const },
+      { x: "F3", y: 101, series: "Forecast" as const },
+    ];
+    const truncated = truncateChartPoints(points, 12);
+    expect(truncated.some((p) => p.series === "Forecast")).toBe(true);
+    expect(truncated.filter((p) => p.series === "Forecast").length).toBeGreaterThan(0);
+    expect(truncated[truncated.length - 1]?.x).toMatch(/^F/);
   });
 });
 

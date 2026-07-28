@@ -1,10 +1,14 @@
 "use client";
 
-import { useState } from "react";
-import type { ChartSpec } from "@/modules/analyse/domain/charts";
+import { useMemo, useState } from "react";
+import {
+  normalizeChartSpecs,
+  type ChartSpec,
+} from "@/modules/analyse/domain/charts";
 import type { TabularData } from "@/modules/blocks/domain/types";
 import { MiniChart } from "@/components/flow/MiniChart";
 import { downloadTableCsv } from "@/components/flow/downloadCsv";
+import { AskPipelineProgress } from "./AskPipelineProgress";
 import { AskRichText } from "./AskRichText";
 
 export type ClarifyQuestion = {
@@ -22,6 +26,7 @@ export type AskMessageMeta = {
   fileId?: string;
   fileName?: string;
   steps?: string[];
+  currentStepType?: string | null;
   plan?: { title?: string; steps?: string[]; archetype?: string };
   charts?: ChartSpec[];
   tablePreview?: {
@@ -83,37 +88,121 @@ export function AskMessageExtras({
   content,
   runId,
   meta,
-  onSuggest,
+  onGoAhead,
+  liveStatus,
+  liveStepType,
 }: {
   role: string;
   content: string;
   runId: string | null;
   meta?: AskMessageMeta | null;
-  onSuggest?: (text: string, opts?: { forceBuild?: boolean }) => void;
+  /** Submit collected Q&A only when user confirms Go ahead */
+  onGoAhead?: (mergedAnswers: string, opts: { forceBuild: boolean }) => void;
+  /** Live poll overrides while this message's run is in flight */
+  liveStatus?: string | null;
+  liveStepType?: string | null;
 }) {
   const [exportError, setExportError] = useState("");
   const [exportBusy, setExportBusy] = useState(false);
   const isUser = role === "user";
-  const charts = meta?.charts?.filter(Boolean) ?? [];
+  const charts = useMemo(
+    () => normalizeChartSpecs(meta?.charts),
+    [meta?.charts],
+  );
   const preview = meta?.tablePreview;
   const canCsv = Boolean(meta?.exports?.csv && runId);
-  const canDeck = Boolean(meta?.exports?.presentation && runId);
+  const runOk =
+    !meta?.status ||
+    ["SUCCEEDED", "succeeded"].includes(String(meta.status));
+  // Presentation pack can be built from any successful run result
+  const canDeck = Boolean(
+    runId &&
+      runOk &&
+      (meta?.exports?.presentation ||
+        charts.length > 0 ||
+        meta?.kind === "run_result"),
+  );
+  const stepList = useMemo(() => {
+    const fromMeta = meta?.steps;
+    const fromPlan = meta?.plan?.steps;
+    if (Array.isArray(fromMeta) && fromMeta.length) {
+      return fromMeta.filter((t): t is string => typeof t === "string");
+    }
+    if (Array.isArray(fromPlan) && fromPlan.length) {
+      return fromPlan.filter((t): t is string => typeof t === "string");
+    }
+    return [] as string[];
+  }, [meta?.steps, meta?.plan?.steps]);
+  const showPipe =
+    !isUser &&
+    stepList.length > 0 &&
+    (meta?.kind === "run_progress" ||
+      meta?.kind === "run_result" ||
+      meta?.kind === "auto_heal" ||
+      Boolean(liveStatus));
+  const pipeStatus = liveStatus || meta?.status || null;
+  const pipeStep = liveStepType || meta?.currentStepType || null;
   const isClarify = meta?.kind === "clarify";
   const questions = meta?.questions ?? [];
+  const [answers, setAnswers] = useState<Record<string, string>>(() => {
+    const init: Record<string, string> = {};
+    for (const q of questions) init[q.id] = "";
+    return init;
+  });
+
+  const allAnswered = useMemo(() => {
+    if (!questions.length) return true;
+    return questions.every((q) => (answers[q.id] || "").trim().length > 0);
+  }, [answers, questions]);
+
+  function setAnswer(id: string, value: string) {
+    setAnswers((prev) => ({ ...prev, [id]: value }));
+  }
+
+  function submitGoAhead() {
+    const lines = questions
+      .map((q) => {
+        const a = (answers[q.id] || "").trim();
+        return a ? `${q.prompt}: ${a}` : null;
+      })
+      .filter(Boolean);
+    const merged =
+      lines.length > 0
+        ? lines.join("; ")
+        : meta?.suggestedGoal || "go ahead";
+    onGoAhead?.(merged, { forceBuild: true });
+  }
 
   return (
     <div className="space-y-3">
       {meta?.fileName ? (
-        <p className={`text-xs ${isUser ? "text-white/70" : "ask-chip-label"}`}>
+        <p className={`text-xs ${isUser ? "text-white/70" : "text-muted"}`}>
           Attached: {meta.fileName}
         </p>
       ) : null}
 
       {isClarify ? (
-        <div className="ask-clarify-badge">Quick scan before we build</div>
+        <div className="ask-clarify-badge">Answer each question, then Go ahead</div>
       ) : null}
 
-      <AskRichText text={content} tone={isUser ? "inverse" : "default"} />
+      {showPipe ? (
+        <AskPipelineProgress
+          flowId={meta?.flowId}
+          flowName={meta?.flowName}
+          steps={stepList}
+          runStatus={pipeStatus}
+          currentStepType={pipeStep}
+        />
+      ) : null}
+
+      {meta?.kind === "run_progress" ? (
+        <AskRichText
+          text={content.split("\n\n").slice(0, 2).join("\n\n")}
+          tone="default"
+        />
+      ) : (
+        <AskRichText text={content} tone={isUser ? "inverse" : "default"} />
+      )}
 
       {!isUser && isClarify && questions.length ? (
         <div className="space-y-3">
@@ -121,38 +210,54 @@ export function AskMessageExtras({
             <div key={q.id} className="ask-clarify-block">
               <p className="ask-clarify-block__prompt">{q.prompt}</p>
               <div className="ask-clarify-block__chips">
-                {q.suggestions.map((s) => (
-                  <button
-                    key={s}
-                    type="button"
-                    className="ask-chip"
-                    onClick={() => onSuggest?.(s)}
-                  >
-                    {s}
-                  </button>
-                ))}
+                {q.suggestions.map((s) => {
+                  const selected = answers[q.id] === s;
+                  return (
+                    <button
+                      key={s}
+                      type="button"
+                      className={`ask-chip ${selected ? "ask-chip--selected" : ""}`}
+                      onClick={() => setAnswer(q.id, s)}
+                    >
+                      {s}
+                    </button>
+                  );
+                })}
               </div>
+              <label className="mt-2 block text-xs text-muted">
+                Your answer
+                <input
+                  className="input mt-1 text-sm"
+                  value={answers[q.id] ?? ""}
+                  placeholder="Type or pick a suggestion above"
+                  onChange={(e) => setAnswer(q.id, e.target.value)}
+                />
+              </label>
             </div>
           ))}
-          <div className="flex flex-wrap gap-2 pt-1">
+          <div className="flex flex-wrap items-center gap-2 pt-1">
             <button
               type="button"
               className="btn btn-sm btn-primary"
-              onClick={() =>
-                onSuggest?.(meta?.suggestedGoal || "go ahead", {
-                  forceBuild: true,
-                })
-              }
+              disabled={!allAnswered && questions.length > 0}
+              onClick={submitGoAhead}
             >
-              Build with defaults
+              Go ahead
             </button>
             <button
               type="button"
               className="btn btn-sm btn-secondary"
-              onClick={() => onSuggest?.("go ahead", { forceBuild: true })}
+              onClick={() =>
+                onGoAhead?.(meta?.suggestedGoal || "go ahead", {
+                  forceBuild: true,
+                })
+              }
             >
-              Go ahead
+              Use defaults
             </button>
+            <span className="text-[11px] text-muted">
+              Pipeline only starts after Go ahead
+            </span>
           </div>
         </div>
       ) : null}
@@ -176,7 +281,7 @@ export function AskMessageExtras({
               <thead className="sticky top-0 bg-white text-muted">
                 <tr>
                   {preview.columns.map((c) => (
-                    <th key={c} className="px-2 py-1.5 font-semibold text-accent-deep">
+                    <th key={c} className="px-2 py-1.5 font-semibold">
                       {c}
                     </th>
                   ))}

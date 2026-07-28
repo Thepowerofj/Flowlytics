@@ -40,10 +40,17 @@ export const aiAnalyseBlock: BlockDefinition = {
 
     const stats = computeStats(source);
     const baseline = buildBaselineInsightReport(source, stats);
-    const sample = source.rows.slice(0, 8);
-    const question = String(config.userQuestion ?? "").trim();
-    const conversation = String(config.conversationContext ?? "").trim();
-    const pipelineContext = String(config.pipelineContext ?? "").trim();
+    const question = String(config.userQuestion ?? "").trim().slice(0, 500);
+    const conversation = String(config.conversationContext ?? "")
+      .trim()
+      .slice(0, 1200);
+    const pipelineContext = String(config.pipelineContext ?? "").trim().slice(0, 500);
+    const datasetMeta = String(config.datasetMeta ?? "").trim().slice(0, 700);
+    // Follow-ups: metadata only — do not resend raw file samples / attachment history
+    const metaOnly =
+      config.contextMode === "meta" ||
+      config.skipRawSample === true ||
+      (Boolean(datasetMeta) && Boolean(config.followUp));
     const style = String(config.answerStyle ?? "exec");
     const styleRule =
       style === "bullets"
@@ -51,6 +58,43 @@ export const aiAnalyseBlock: BlockDefinition = {
         : style === "actions"
           ? "Emphasize nextSteps (3–5 concrete actions); findings support those actions."
           : "Write an executive summary tone: crisp headline + decision-oriented findings.";
+
+    const { safeJsonSlice } = await import("@/shared/lib/json");
+    const dataBlock = metaOnly
+      ? `DATASET METADATA (prefer this over any prior file dump):
+${datasetMeta || `${source.rows.length} rows · ${source.columns.slice(0, 16).join(", ")}`}
+
+PRECOMPUTED FINDINGS:
+${baseline.findings
+  .slice(0, 4)
+  .map((f) => `• ${f.title}: ${f.detail}`)
+  .join("\n")}
+
+STATS (compact):
+${safeJsonSlice(
+  stats.slice(0, 6).map((s) => ({
+    column: s.column,
+    kind: s.kind,
+    min: s.min,
+    max: s.max,
+    mean: s.mean,
+  })),
+  900,
+)}`
+      : `SOURCE: ${source.rows.length} rows · ${source.columns.slice(0, 24).join(", ")}
+${datasetMeta ? `\nDATASET METADATA:\n${datasetMeta}\n` : ""}
+PRECOMPUTED FINDINGS:
+${baseline.findings
+  .slice(0, 6)
+  .map((f) => `• ${f.title}: ${f.detail}`)
+  .join("\n")}
+
+STATS:
+${safeJsonSlice(stats, 1600)}
+
+SAMPLE:
+${safeJsonSlice(source.rows.slice(0, 6), 600)}`;
+
     const prompt = `You help small-business and personal budget owners make decisions.
 Return ONLY JSON matching this shape (no markdown):
 ${ANALYSE_JSON_SCHEMA}
@@ -62,27 +106,19 @@ Rules:
 - Use kind=metric when highlighting a number; kind=risk for gaps/volatility; kind=opportunity for upside; kind=action only inside nextSteps when possible
 - Never treat identifier columns (pharmacyId, customerId, SKU, codes) as KPIs or forecast targets — prefer Sales, Amount, Quantity, Revenue, etc.
 - If the table includes Forecast/Actual series, explain the outlook and what changed vs history
+- Prefer DATASET METADATA and CONTEXT SUMMARY over raw attachment history
+- Do not ask to re-attach or re-upload the file when metadata is present
 - ${styleRule}
-${question ? `- Latest user request (adapt the read-out to this): ${question}` : ""}
-${conversation ? `\nRECENT CHAT (oldest→newest):\n${conversation.slice(0, 1600)}\n` : ""}
-${pipelineContext ? `\nCONNECTED PIPELINE:\n${pipelineContext.slice(0, 800)}\n` : ""}
+${question ? `- Latest user request: ${question}` : ""}
+${conversation ? `\nCONTEXT SUMMARY (newest focus):\n${conversation}\n` : ""}
+${pipelineContext ? `\nPIPELINE:\n${pipelineContext}\n` : ""}
 
-SOURCE SNAPSHOT: ${source.rows.length} rows, columns ${source.columns.join(", ")}
-
-PRECOMPUTED FINDINGS:
-${baseline.findings.map((f) => `• ${f.title}: ${f.detail}`).join("\n")}
-
-STATS:
-${JSON.stringify(stats).slice(0, 2800)}
-
-SAMPLE:
-${JSON.stringify(sample).slice(0, 1000)}`;
+${dataBlock}`;
 
     let report: InsightReport = baseline;
     try {
       const reply = await ctx.callLlm(prompt, { json: true });
       report = parseInsightReportReply(reply) ?? baseline;
-      // Ensure we always have something useful
       if (!report.findings.length && !report.nextSteps.length) {
         report = baseline;
       }
@@ -105,8 +141,11 @@ ${JSON.stringify(sample).slice(0, 1000)}`;
       explanation,
       insights,
       insightReport: report,
-      // Keep source available for source-picker / debugging
-      _sourceTable: source,
+      // Summary only — never embed full source (blows JSON / call stack on persist)
+      _sourceTableSummary: {
+        columns: source.columns.slice(0, 24),
+        rowCount: source.rows.length,
+      },
       _columnFormats: {
         metric: { kind: "number" as const, useGrouping: true },
       },

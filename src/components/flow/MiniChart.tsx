@@ -1,7 +1,11 @@
 "use client";
 
 import { useState } from "react";
-import type { ChartSpec } from "@/modules/analyse/domain/charts";
+import {
+  normalizeChartSpec,
+  truncateChartPoints,
+  type ChartSpec,
+} from "@/modules/analyse/domain/charts";
 import {
   formatChartValue,
   type ColumnDisplayFormat,
@@ -45,11 +49,20 @@ function TruncationNotice({
   );
 }
 
-function ChartInsights({ lines }: { lines?: string[] }) {
-  if (!lines?.length) return null;
+function ChartInsights({ lines }: { lines?: unknown }) {
+  // Guard compacted/corrupt meta (insights sometimes arrives as a plain string)
+  const items = Array.isArray(lines)
+    ? lines.filter((l): l is string => typeof l === "string" && l.trim().length > 0)
+    : typeof lines === "string" && lines.trim()
+      ? lines
+          .split(/\n+/)
+          .map((s) => s.trim())
+          .filter(Boolean)
+      : [];
+  if (!items.length) return null;
   return (
     <ul className="chart-viz__insights">
-      {lines.slice(0, 3).map((line) => (
+      {items.slice(0, 3).map((line) => (
         <li key={line}>{line}</li>
       ))}
     </ul>
@@ -91,18 +104,19 @@ function ChartTooltip({
 
 export function MiniChart({ chart, size = "sm", interactive }: Props) {
   const isInteractive = interactive ?? size === "lg";
+  const safe = normalizeChartSpec(chart);
 
-  if (!chart.points.length) {
+  if (!safe) {
     return <p className="text-[11px] text-muted">No chartable points yet</p>;
   }
 
-  if (chart.type === "pie") {
-    return <PieChart chart={chart} size={size} interactive={isInteractive} />;
+  if (safe.type === "pie") {
+    return <PieChart chart={safe} size={size} interactive={isInteractive} />;
   }
-  if (chart.type === "line") {
-    return <LineChart chart={chart} size={size} interactive={isInteractive} />;
+  if (safe.type === "line") {
+    return <LineChart chart={safe} size={size} interactive={isInteractive} />;
   }
-  return <BarChart chart={chart} size={size} interactive={isInteractive} />;
+  return <BarChart chart={safe} size={size} interactive={isInteractive} />;
 }
 
 function BarChart({
@@ -216,12 +230,16 @@ function LineChart({
   const tip = pinned ?? hover;
 
   const maxPoints = size === "lg" ? 20 : 24;
-  const pts = chart.points.slice(0, maxPoints);
+  const pts = truncateChartPoints(chart.points, maxPoints);
   const bandVals = pts.flatMap((p) =>
     [p.y, p.low, p.high].filter((v): v is number => v != null && Number.isFinite(v)),
   );
-  const max = Math.max(...bandVals, 1);
-  const min = Math.min(...bandVals, 0);
+  let max = 1;
+  let min = 0;
+  for (const v of bandVals) {
+    if (v > max) max = v;
+    if (v < min) min = v;
+  }
   const span = max - min || 1;
   const hasBand = pts.some(
     (p) =>

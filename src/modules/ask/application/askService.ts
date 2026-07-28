@@ -1,7 +1,14 @@
 import { prisma } from "@/shared/lib/prisma";
 import { AppError } from "@/shared/lib/errors";
-import { toJsonValue } from "@/shared/lib/json";
-import type { ChartSpec } from "@/modules/analyse/domain/charts";
+import {
+  compactJsonValue,
+  isStackOverflowError,
+  toJsonValueSafe,
+} from "@/shared/lib/json";
+import {
+  normalizeChartSpec,
+  type ChartSpec,
+} from "@/modules/analyse/domain/charts";
 import type { TabularData, FlowGraph } from "@/modules/blocks/domain/types";
 import { blockLabel } from "@/modules/blocks/catalog";
 import {
@@ -22,6 +29,61 @@ import {
   mergeGoalWithAnswers,
   wantsSkipClarify,
 } from "../domain/clarify";
+import {
+  buildDatasetMetaSummary,
+  buildLlmContext,
+  summarizeForStackRecovery,
+} from "../domain/contextBudget";
+import { healAskPipeline } from "./healAskPipeline";
+import { loadUploadedTable } from "./loadUploadedTable";
+
+function metaKind(meta: unknown): string | undefined {
+  if (!meta || typeof meta !== "object") return undefined;
+  const kind = (meta as { kind?: unknown }).kind;
+  return typeof kind === "string" ? kind : undefined;
+}
+
+function findStoredDatasetMeta(
+  messages: { metaJson: unknown }[],
+): string | null {
+  for (let i = messages.length - 1; i >= 0; i--) {
+    const meta = messages[i]?.metaJson as { datasetMeta?: string } | null;
+    if (typeof meta?.datasetMeta === "string" && meta.datasetMeta.trim()) {
+      return meta.datasetMeta.trim();
+    }
+  }
+  return null;
+}
+
+const PLAN_SAMPLE_ROWS = 2_500;
+const GRAPH_SAMPLE_ROWS = 40;
+
+/** Sample for planning/clarify — full file reloads via fileId at run time. */
+function sampleTable(table: TabularData, maxRows: number): TabularData {
+  if (table.rows.length <= maxRows) return table;
+  return {
+    columns: table.columns,
+    rows: table.rows.slice(0, maxRows),
+  };
+}
+
+function slimIngestSeed(seed: IngestSeed): IngestSeed {
+  const table = seed.table;
+  if (!table?.columns?.length) return seed;
+  const total =
+    (table as TabularData & { _rowCount?: number })._rowCount ??
+    table.rows.length;
+  // Keep fileId + small sample in the graph; ingest reloads full file at run time
+  return {
+    ...seed,
+    table: {
+      columns: table.columns,
+      rows: table.rows.slice(0, GRAPH_SAMPLE_ROWS),
+      _compacted: true,
+      _rowCount: total,
+    } as TabularData & { _compacted: boolean; _rowCount: number },
+  };
+}
 
 type AskTablePreview = {
   columns: string[];
@@ -30,15 +92,6 @@ type AskTablePreview = {
   fileName?: string;
 };
 
-function isChartSpec(value: unknown): value is ChartSpec {
-  if (!value || typeof value !== "object") return false;
-  const c = value as Record<string, unknown>;
-  return (
-    typeof c.type === "string" &&
-    typeof c.title === "string" &&
-    Array.isArray(c.points)
-  );
-}
 
 function extractAskArtifacts(resultJson: unknown): {
   content: string;
@@ -87,8 +140,9 @@ function extractAskArtifacts(resultJson: unknown): {
       } else if (typeof out.explanation === "string" && out.explanation.trim()) {
         parts.push(out.explanation.trim().slice(0, 700));
       }
-      if (isChartSpec(out.chart)) {
-        collectedCharts.push(out.chart);
+      {
+        const chart = normalizeChartSpec(out.chart);
+        if (chart) collectedCharts.push(chart);
       }
       // Prefer projection/history tables over AI insight tables for CSV preview
       const t = out.table as TabularData | undefined;
@@ -101,8 +155,9 @@ function extractAskArtifacts(resultJson: unknown): {
     }
   }
 
-  if (isChartSpec(r.chart)) {
-    collectedCharts.push(r.chart);
+  {
+    const chart = normalizeChartSpec(r.chart);
+    if (chart) collectedCharts.push(chart);
   }
 
   // Prefer forecast charts (orange series) so Ask shows the outlook, not only history bars
@@ -147,7 +202,9 @@ function extractAskArtifacts(resultJson: unknown): {
     tablePreview,
     exports: {
       csv: Boolean(table),
-      presentation: hasPresentation,
+      // Deck can always be built from run results (not only when a presentation block ran)
+      presentation:
+        hasPresentation || Boolean(charts.length || parts.length || table),
     },
     steps,
   };
@@ -240,10 +297,10 @@ export async function askTurn(input: {
       content: question,
       metaJson:
         input.fileId || input.fileName
-          ? toJsonValue({
+          ? toJsonValueSafe({
               fileId: input.fileId,
               fileName: input.fileName,
-            })
+            }).value
           : undefined,
     },
   });
@@ -254,10 +311,6 @@ export async function askTurn(input: {
     take: 24,
     select: { role: true, content: true, metaJson: true },
   });
-  const conversationContext = recentFull
-    .map((m) => `${m.role}: ${m.content.slice(0, 400)}`)
-    .join("\n")
-    .slice(0, 2000);
 
   const lastClarify = [...recentFull]
     .reverse()
@@ -268,14 +321,12 @@ export async function askTurn(input: {
   const clarifyMeta = lastClarify?.metaJson as
     | {
         kind?: string;
-        pendingSeed?: IngestSeed & { table?: TabularData };
+        pendingSeed?: IngestSeed;
         suggestedGoal?: string;
         originalGoal?: string;
       }
     | undefined;
-  const answeringClarify = Boolean(
-    clarifyMeta?.kind === "clarify" && clarifyMeta.pendingSeed?.table?.columns?.length,
-  );
+  const answeringClarify = Boolean(clarifyMeta?.kind === "clarify");
 
   let priorSteps: string[] = [];
   let seed: IngestSeed = {
@@ -308,13 +359,33 @@ export async function askTurn(input: {
     }
   }
 
-  // Restore pending upload from the clarify turn when the user answers
-  if (!seed.table?.columns?.length && clarifyMeta?.pendingSeed?.table?.columns?.length) {
-    seed = {
-      ...clarifyMeta.pendingSeed,
-      fileId: input.fileId || clarifyMeta.pendingSeed.fileId,
-      fileName: input.fileName || clarifyMeta.pendingSeed.fileName,
-    };
+  // Restore upload from clarify fileId (never rehydrate huge tables from chat meta)
+  const restoreFileId = seed.fileId || clarifyMeta?.pendingSeed?.fileId;
+  const tableLooksSample =
+    Boolean(seed.table?.columns?.length) &&
+    Boolean(seed.fileId) &&
+    (seed.table?.rows.length ?? 0) <= GRAPH_SAMPLE_ROWS;
+  if (
+    restoreFileId &&
+    (!seed.table?.columns?.length || tableLooksSample || input.forceBuild)
+  ) {
+    const loaded = await loadUploadedTable(input.userId, restoreFileId);
+    if (loaded) {
+      seed = {
+        fileId: restoreFileId,
+        fileName:
+          loaded.fileName ||
+          seed.fileName ||
+          clarifyMeta?.pendingSeed?.fileName,
+        datasetName:
+          seed.datasetName || clarifyMeta?.pendingSeed?.datasetName,
+        // Keep a sample in memory for Ask; worker reloads full file via fileId
+        table: sampleTable(loaded.table, PLAN_SAMPLE_ROWS),
+      };
+      // Preserve true size on the slim marker used when materializing the graph
+      (seed.table as TabularData & { _rowCount?: number })._rowCount =
+        loaded.table.rows.length;
+    }
   }
 
   const effectiveGoal = answeringClarify
@@ -325,7 +396,31 @@ export async function askTurn(input: {
       )
     : question;
 
-  // First pass with data: ask a few sharp questions before building (unless skipped)
+  const trueRowCount =
+    (seed.table as TabularData & { _rowCount?: number } | undefined)?._rowCount ??
+    seed.table?.rows.length;
+  let datasetMeta =
+    findStoredDatasetMeta(recentFull) ||
+    (seed.table?.columns?.length
+      ? buildDatasetMetaSummary(sampleTable(seed.table, PLAN_SAMPLE_ROWS), {
+          fileName: seed.fileName,
+          totalRowCount: trueRowCount,
+          goal: effectiveGoal,
+        })
+      : "");
+
+  // Compact digest + durable metadata — never replay full attachment history to the LLM
+  const conversationContext = buildLlmContext({
+    turns: recentFull.map((m) => ({
+      role: m.role,
+      content: m.content,
+      meta: { kind: metaKind(m.metaJson) },
+    })),
+    datasetMeta,
+    followUp: isUpdate,
+  });
+
+  // First pass with data: ask questions — client only builds on explicit Go ahead
   const shouldClarify =
     !input.forceBuild &&
     !isUpdate &&
@@ -335,54 +430,99 @@ export async function askTurn(input: {
     !goalLooksComplete(question, seed.table);
 
   if (shouldClarify && seed.table) {
-    const clarify = buildClarifyPayload(
-      seed.table,
-      question,
-      seed.fileName,
-    );
-    // Compact table kept for the answer turn (rows capped for meta size)
-    const pendingTable: TabularData = {
-      columns: seed.table.columns,
-      rows: seed.table.rows.slice(0, 5000),
-    };
-    const content = [
-      "I scanned your file — a few quick choices will make the pipeline sharper.",
-      "",
-      clarify.datasetBrief,
-      "",
-      ...clarify.questions.map(
-        (q, i) => `**${i + 1}. ${q.prompt}**\n${q.suggestions.map((s) => `• ${s}`).join("\n")}`,
-      ),
-      "",
-      "_Reply with your picks (or tap a suggestion), or say **go ahead** to build with my defaults._",
-    ].join("\n");
+    if (!seed.fileId) {
+      throw new AppError(
+        "Attach the file again so we can build after your answers.",
+        "NEED_FILE",
+        400,
+      );
+    }
+    try {
+      const trueRows =
+        (seed.table as TabularData & { _rowCount?: number })._rowCount ??
+        seed.table.rows.length;
+      const clarify = buildClarifyPayload(
+        sampleTable(seed.table, PLAN_SAMPLE_ROWS),
+        question,
+        seed.fileName,
+        trueRows,
+      );
+      datasetMeta =
+        datasetMeta ||
+        buildDatasetMetaSummary(sampleTable(seed.table, PLAN_SAMPLE_ROWS), {
+          fileName: seed.fileName,
+          totalRowCount: trueRows,
+          goal: question,
+        });
+      const content = [
+        "I scanned your file and tailored a few questions from your goal — answer each, then click **Go ahead** to build.",
+        "",
+        clarify.datasetBrief,
+        "",
+        "_Answers stay in the boxes until you confirm — nothing runs until Go ahead._",
+      ].join("\n");
 
+      await prisma.chatMessage.create({
+        data: {
+          threadId: thread.id,
+          role: "assistant",
+          content,
+          metaJson: toJsonValueSafe({
+            kind: "clarify",
+            datasetBrief: clarify.datasetBrief,
+            datasetMeta,
+            questions: clarify.questions,
+            suggestedGoal: clarify.suggestedGoal,
+            originalGoal: question,
+            // Lightweight only — reload table from storage on Go ahead
+            pendingSeed: {
+              fileId: seed.fileId,
+              fileName: seed.fileName,
+              datasetName: seed.datasetName,
+            },
+          }).value,
+        },
+      });
+      await prisma.chatThread.update({
+        where: { id: thread.id },
+        data: {
+          updatedAt: new Date(),
+          title:
+            thread.title === "New chat" ? question.slice(0, 80) : thread.title,
+        },
+      });
+      return {
+        threadId: thread.id,
+        phase: "clarify" as const,
+        flowId: null,
+        flowName: null,
+        runId: null,
+        steps: [] as string[],
+        questions: clarify.questions,
+      };
+    } catch (error) {
+      // Silent fallback: skip clarify UI and continue into pipeline build
+      if (!isStackOverflowError(error)) throw error;
+    }
+  }
+
+  // Clarify answers without Go ahead must not accidentally build
+  if (answeringClarify && !input.forceBuild && !wantsSkipClarify(question)) {
     await prisma.chatMessage.create({
       data: {
         threadId: thread.id,
         role: "assistant",
-        content,
-        metaJson: toJsonValue({
-          kind: "clarify",
-          datasetBrief: clarify.datasetBrief,
-          questions: clarify.questions,
-          suggestedGoal: clarify.suggestedGoal,
-          originalGoal: question,
-          pendingSeed: {
-            fileId: seed.fileId,
-            fileName: seed.fileName,
-            datasetName: seed.datasetName,
-            table: pendingTable,
-          },
-        }),
-      },
-    });
-    await prisma.chatThread.update({
-      where: { id: thread.id },
-      data: {
-        updatedAt: new Date(),
-        title:
-          thread.title === "New chat" ? question.slice(0, 80) : thread.title,
+        content:
+          "Got it — I’ve noted that. Finish the other answers, then click **Go ahead** to build the pipeline.",
+        metaJson: toJsonValueSafe({
+          kind: "clarify_ack",
+          pendingSeed: clarifyMeta?.pendingSeed,
+          suggestedGoal: clarifyMeta?.suggestedGoal,
+          originalGoal: clarifyMeta?.originalGoal,
+          datasetMeta:
+            (clarifyMeta as { datasetMeta?: string } | undefined)?.datasetMeta ||
+            datasetMeta,
+        }).value,
       },
     });
     return {
@@ -392,106 +532,218 @@ export async function askTurn(input: {
       flowName: null,
       runId: null,
       steps: [] as string[],
-      questions: clarify.questions,
+      questions: [],
     };
   }
 
-  const plan = planAutoPipeline({
-    table: seed.table,
-    rawText: seed.table ? undefined : effectiveGoal,
-    enableAi: input.enableAi !== false,
-    goal: effectiveGoal,
-    priorSteps: isUpdate ? priorSteps : undefined,
-  });
-
-  const graph = materializeAutoPipelineGraph(plan, seed) as FlowGraph;
-  const stepTypes = plan.steps.map((s) => s.type);
-  const pipelineContext = stepTypes.map((t) => blockLabel(t)).join(" → ");
-
-  for (const node of graph.nodes) {
-    if (node.type === "ai.analyse" || node.type === "ai.explain") {
-      node.config = {
-        ...node.config,
-        userQuestion: effectiveGoal,
-        conversationContext,
-        pipelineContext: isUpdate
-          ? `Updating existing pipeline (${flowName || plan.title}): ${pipelineContext}`
-          : `New pipeline: ${pipelineContext}`,
-        answerStyle: "exec",
-        aiOptIn: true,
-      };
+  const buildOnce = async (opts: {
+    seed: IngestSeed;
+    context: string;
+    recovered: boolean;
+  }) => {
+    let planSource = opts.seed.table;
+    // Prefer file reload only to ensure we have columns; never plan on 100k+ rows in Ask
+    if (
+      (!planSource?.columns?.length ||
+        (planSource as { _compacted?: boolean })._compacted) &&
+      opts.seed.fileId
+    ) {
+      const loaded = await loadUploadedTable(input.userId, opts.seed.fileId);
+      if (loaded?.table?.columns?.length) planSource = loaded.table;
     }
-    if (node.type === "analyse.projection") {
-      node.config = {
-        ...node.config,
-        goalPrompt: effectiveGoal,
-      };
-    }
-  }
+    const planTable = planSource
+      ? sampleTable(planSource, PLAN_SAMPLE_ROWS)
+      : undefined;
 
-  if (!flowId) {
-    const flow = await createFlowWithGraph(
-      input.userId,
-      suggestFlowName(plan, seed.fileName) || effectiveGoal.slice(0, 60),
-      graph,
-    );
-    flowId = flow.id;
-    flowName = flow.name;
-    await prisma.chatThread.update({
-      where: { id: thread.id },
+    const plan = planAutoPipeline({
+      table: planTable,
+      rawText: planTable ? undefined : effectiveGoal,
+      enableAi: input.enableAi !== false,
+      goal: effectiveGoal,
+      priorSteps: isUpdate ? priorSteps : undefined,
+    });
+
+    // Always persist a slim graph when fileId can reload the full file at run
+    const graphSeed =
+      opts.seed.fileId && opts.seed.table
+        ? slimIngestSeed({
+            ...opts.seed,
+            table: planSource ?? opts.seed.table,
+          })
+        : opts.seed.table
+          ? {
+              ...opts.seed,
+              table: sampleTable(opts.seed.table, GRAPH_SAMPLE_ROWS),
+            }
+          : opts.seed;
+
+    const graph = materializeAutoPipelineGraph(plan, graphSeed) as FlowGraph;
+    const stepTypes = plan.steps.map((s) => s.type);
+    const pipelineContext = stepTypes.map((t) => blockLabel(t)).join(" → ");
+
+    // Refresh meta from the planning sample when missing
+    if (!datasetMeta && planTable?.columns?.length) {
+      datasetMeta = buildDatasetMetaSummary(planTable, {
+        fileName: opts.seed.fileName,
+        totalRowCount:
+          (opts.seed.table as TabularData & { _rowCount?: number } | undefined)
+            ?._rowCount ?? planTable.rows.length,
+        goal: effectiveGoal,
+      });
+    }
+
+    for (const node of graph.nodes) {
+      if (node.type === "ai.analyse" || node.type === "ai.explain") {
+        node.config = {
+          ...node.config,
+          userQuestion: effectiveGoal.slice(0, 500),
+          conversationContext: opts.context,
+          datasetMeta,
+          // First build may include a tiny sample; follow-ups are metadata-only
+          followUp: isUpdate || opts.recovered,
+          contextMode: isUpdate || opts.recovered ? "meta" : "full",
+          skipRawSample: isUpdate || opts.recovered,
+          pipelineContext: isUpdate
+            ? `Updating existing pipeline (${flowName || plan.title}): ${pipelineContext}`
+            : `New pipeline: ${pipelineContext}`,
+          answerStyle: "exec",
+          aiOptIn: true,
+        };
+      }
+      if (node.type === "analyse.projection") {
+        node.config = {
+          ...node.config,
+          goalPrompt: effectiveGoal.slice(0, 500),
+        };
+      }
+      // Never leave accidental full dumps on non-ingest nodes
+      if (node.type !== "ingest.csv_excel" && node.config.table) {
+        node.config.table = compactJsonValue(node.config.table, {
+          maxTableRows: 40,
+        });
+      }
+    }
+
+    let nextFlowId = flowId;
+    let nextFlowName = flowName;
+    if (!nextFlowId) {
+      const flow = await createFlowWithGraph(
+        input.userId,
+        suggestFlowName(plan, opts.seed.fileName) ||
+          effectiveGoal.slice(0, 60),
+        graph,
+      );
+      nextFlowId = flow.id;
+      nextFlowName = flow.name;
+      await prisma.chatThread.update({
+        where: { id: thread.id },
+        data: {
+          flowId: nextFlowId,
+          title:
+            thread.title === "New chat"
+              ? effectiveGoal.slice(0, 80)
+              : thread.title,
+        },
+      });
+    } else {
+      await saveFlowGraph(
+        nextFlowId,
+        input.userId,
+        nextFlowName || plan.title,
+        graph,
+      );
+    }
+
+    const run = await enqueueFlowRun({
+      flowId: nextFlowId,
+      userId: input.userId,
+    });
+
+    const progressIntro = isUpdate
+      ? `Updating **${nextFlowName || plan.title}** from your latest request and re-running…`
+      : `Building **${plan.title}** and running it…`;
+
+    await prisma.chatMessage.create({
       data: {
-        flowId,
-        title:
-          thread.title === "New chat"
-            ? effectiveGoal.slice(0, 80)
-            : thread.title,
+        threadId: thread.id,
+        role: "assistant",
+        content: `${progressIntro}\n\n${plan.rationale}\n\nPipeline: ${pipelineContext}`,
+        runId: run.id,
+        metaJson: toJsonValueSafe({
+          kind: "run_progress",
+          plan: {
+            archetype: plan.archetype,
+            title: plan.title,
+            steps: stepTypes,
+          },
+          steps: stepTypes,
+          flowId: nextFlowId,
+          flowName: nextFlowName || plan.title,
+          status: "QUEUED",
+          updating: isUpdate,
+          datasetMeta,
+        }).value,
       },
     });
-  } else {
-    await saveFlowGraph(flowId, input.userId, flowName || plan.title, graph);
-  }
 
-  const run = await enqueueFlowRun({ flowId, userId: input.userId });
+    await prisma.chatThread.update({
+      where: { id: thread.id },
+      data: { updatedAt: new Date() },
+    });
 
-  const progressIntro = isUpdate
-    ? `Updating **${flowName || plan.title}** from your latest request and re-running…`
-    : `Building **${plan.title}** and running it…`;
-
-  await prisma.chatMessage.create({
-    data: {
+    return {
       threadId: thread.id,
-      role: "assistant",
-      content: `${progressIntro}\n\n${plan.rationale}\n\nPipeline: ${pipelineContext}`,
+      phase: "running" as const,
+      flowId: nextFlowId,
+      flowName: nextFlowName,
       runId: run.id,
-      metaJson: toJsonValue({
-        kind: "run_progress",
-        plan: {
-          archetype: plan.archetype,
-          title: plan.title,
-          steps: stepTypes,
-        },
-        steps: stepTypes,
-        flowId,
-        flowName: flowName || plan.title,
-        status: "QUEUED",
-        updating: isUpdate,
-      }),
-    },
-  });
-
-  await prisma.chatThread.update({
-    where: { id: thread.id },
-    data: { updatedAt: new Date() },
-  });
-
-  return {
-    threadId: thread.id,
-    phase: "running" as const,
-    flowId,
-    flowName,
-    runId: run.id,
-    steps: stepTypes,
+      steps: stepTypes,
+    };
   };
+
+  try {
+    return await buildOnce({
+      seed,
+      context: conversationContext,
+      recovered: false,
+    });
+  } catch (error) {
+    const recoverable =
+      isStackOverflowError(error) ||
+      (error instanceof Error &&
+        /stack|too large|payload|JSON|serialize/i.test(error.message));
+    if (!recoverable) throw error;
+
+    console.error("[ask] build failed, retrying with slim seed", error);
+
+    // Silent backup: summarise for LLM/pipeline only — never show that text in chat
+    const recoveryContext = summarizeForStackRecovery(
+      recentFull.map((m) => ({
+        role: m.role,
+        content: m.content,
+        meta: { kind: metaKind(m.metaJson) },
+      })),
+      {
+        goal: effectiveGoal,
+        fileName: seed.fileName,
+        datasetMeta,
+      },
+    );
+
+    try {
+      // Continue automatically into the normal build path (same UX as a clean run)
+      return await buildOnce({
+        seed: slimIngestSeed(seed),
+        context: recoveryContext,
+        recovered: true,
+      });
+    } catch (retryError) {
+      console.error("[ask] slim retry failed", retryError);
+      throw retryError instanceof Error
+        ? retryError
+        : new AppError("Could not build the pipeline", "ASK_BUILD_FAILED", 500);
+    }
+  }
 }
 
 export async function completeAskRun(
@@ -511,26 +763,60 @@ export async function completeAskRun(
 
   let flowName: string | null = null;
   let pipelineSteps: string[] = [];
+  let flowGraph: FlowGraph | null = null;
   if (thread.flowId) {
     const f = await prisma.flow.findFirst({
       where: { id: thread.flowId, userId },
       select: { name: true, graphJson: true },
     });
     flowName = f?.name ?? null;
-    const graph = f?.graphJson as FlowGraph | null;
-    if (graph?.nodes?.length) {
-      pipelineSteps = graph.nodes.map((n) => n.type);
+    flowGraph = (f?.graphJson as FlowGraph | null) ?? null;
+    if (flowGraph?.nodes?.length) {
+      pipelineSteps = flowGraph.nodes.map((n) => n.type);
     }
   }
 
   if (run.status === "QUEUED" || run.status === "RUNNING") {
+    const snap = (run.graphSnapshotJson as FlowGraph | null) ?? flowGraph;
+    if (snap?.nodes?.length) {
+      pipelineSteps = snap.nodes.map((n) => n.type);
+    }
+    const node = snap?.nodes?.find((n) => n.id === run.currentBlockId);
     return {
       status: run.status,
       pending: true as const,
       flowId: thread.flowId,
       flowName,
       steps: pipelineSteps,
+      currentBlockId: run.currentBlockId,
+      currentStepType: node?.type ?? null,
     };
+  }
+
+  // Auto-correct failed Ask pipelines and continue without surfacing a hard stop
+  if (run.status === "FAILED") {
+    try {
+      const healed = await healAskPipeline({
+        userId,
+        threadId,
+        failedRunId: runId,
+      });
+      if (healed) {
+        return {
+          status: "QUEUED" as const,
+          pending: true as const,
+          healed: true as const,
+          runId: healed.runId,
+          flowId: healed.flowId,
+          flowName,
+          steps: healed.steps,
+          currentStepType: healed.steps[0] ?? null,
+          healReason: healed.reason,
+        };
+      }
+    } catch (error) {
+      console.error("[ask] auto-heal failed", error);
+    }
   }
 
   const artifacts =
@@ -552,26 +838,55 @@ export async function completeAskRun(
       runId,
       role: "assistant",
       NOT: { content: { startsWith: "Building " } },
+      // Allow a failed-run notice even if an auto_heal message exists for another run
     },
   });
   if (!already) {
+    const prior = await prisma.chatMessage.findMany({
+      where: { threadId },
+      orderBy: { createdAt: "asc" },
+      take: 30,
+      select: { metaJson: true },
+    });
+    const datasetMeta = findStoredDatasetMeta(prior);
+    // Cap chart geometry so Prisma JSON never recursive-blows on huge point arrays
+    const charts = artifacts.charts
+      .map((c) =>
+        normalizeChartSpec({
+          ...c,
+          points: Array.isArray(c.points) ? c.points.slice(0, 48) : [],
+          insights: c.insights,
+        }),
+      )
+      .filter((c): c is ChartSpec => Boolean(c));
+    const metaJson = toJsonValueSafe(
+      {
+        kind: "run_result",
+        flowId: thread.flowId,
+        flowName,
+        status: run.status,
+        openBuilder: Boolean(thread.flowId),
+        steps: Array.isArray(pipelineSteps)
+          ? pipelineSteps
+          : Array.isArray(artifacts.steps)
+            ? artifacts.steps
+            : [],
+        charts,
+        tablePreview: artifacts.tablePreview
+          ? compactJsonValue(artifacts.tablePreview, { maxTableRows: 24 })
+          : null,
+        exports: artifacts.exports,
+        datasetMeta: datasetMeta || undefined,
+      },
+      "ask-run-result",
+    ).value;
     await prisma.chatMessage.create({
       data: {
         threadId,
         role: "assistant",
-        content: artifacts.content,
+        content: artifacts.content.slice(0, 6000),
         runId,
-        metaJson: toJsonValue({
-          kind: "run_result",
-          flowId: thread.flowId,
-          flowName,
-          status: run.status,
-          openBuilder: Boolean(thread.flowId),
-          steps: pipelineSteps.length ? pipelineSteps : artifacts.steps,
-          charts: artifacts.charts,
-          tablePreview: artifacts.tablePreview,
-          exports: artifacts.exports,
-        }),
+        metaJson,
       },
     });
   }

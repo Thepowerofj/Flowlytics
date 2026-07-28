@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  aggregateHistoryByPeriod,
   comparePeriodKeys,
   isChronologicallySorted,
   orderHistoryPoints,
@@ -35,5 +36,16 @@ describe("periodOrder", () => {
   it("compares period keys chronologically", () => {
     expect(comparePeriodKeys("2024-01-01", "2024-02-01")).toBeLessThan(0);
     expect(comparePeriodKeys("2024-12-01", "2024-01-01")).toBeGreaterThan(0);
+  });
+
+  it("sums duplicate period labels (multi-store daily rows)", () => {
+    const aggregated = aggregateHistoryByPeriod([
+      { label: "2024-01-01", value: 10, rowIndex: 0 },
+      { label: "2024-01-01", value: 5, rowIndex: 1 },
+      { label: "2024-01-02", value: 20, rowIndex: 2 },
+    ]);
+    expect(aggregated).toHaveLength(2);
+    expect(aggregated.find((p) => p.label === "2024-01-01")?.value).toBe(15);
+    expect(aggregated.find((p) => p.label === "2024-01-02")?.value).toBe(20);
   });
 });

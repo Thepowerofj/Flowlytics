@@ -1,6 +1,7 @@
 import type { TabularData } from "@/modules/blocks/domain/types";
 import { parseDate } from "@/modules/ingest/domain/columnTransform";
 import {
+  aggregateHistoryByPeriod,
   extractHistoryPoints,
   isChronologicallySorted,
   orderHistoryPoints,
@@ -450,7 +451,9 @@ export function buildForecast(
     config.periodColumn && config.periodColumn !== column
       ? config.periodColumn
       : "";
-  const rawPoints = extractHistoryPoints(table.rows, column, periodCol);
+  const rawPoints = aggregateHistoryByPeriod(
+    extractHistoryPoints(table.rows, column, periodCol),
+  );
   const asIsLabels = rawPoints.map((p) => p.label);
   const chronologyWarning =
     !isChronologicallySorted(asIsLabels) &&

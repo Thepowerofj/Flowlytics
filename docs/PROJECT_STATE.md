@@ -1,16 +1,16 @@
 # Project State
 
-Last updated: 2026-07-22
+Last updated: 2026-07-28
 
 # Current goal
 
-Ship Flowlytics vNext locally: PayFast, Ask mode, forecast playground, presentation exports, connectors — with accuracy fixtures.
+Implement the Trusted Analytics Core plan: make Guided Ask the primary spreadsheet workflow, repair execution correctness, and upgrade analytics, forecasting, reports, exports, and Builder data quality.
 
 Public repo: https://github.com/Thepowerofj/Flowlytics
 
 # Current slice
 
-vNext full-scope implementation (accuracy fixtures → forecast playground → PayFast → Ask → PDF/PPTX → URL/email connectors).
+Correctness and release gates for Trusted Analytics Core.
 
 # Completed
 
@@ -23,25 +23,28 @@ vNext full-scope implementation (accuracy fixtures → forecast playground → P
 - **Blocks:** client-safe `catalog.ts` (meta/defaultConfig); full `registry.ts` (with `run`) is server/worker-only — fixes nodemailer in client bundles
 - **Present:** Polished PDF/PPTX insight packs (cover, KPI cards, findings/actions, evidence table) via `/api/export/presentation`
 - **Connectors:** `ingest.url`, `output.email`, `output.presentation` blocks
-- Tests: `pnpm test` (149); `tsc --noEmit` clean
+- **Ask reliability:** compact JSON/context handling, chat-embedded pipeline progress, auto-heal reruns, chart metadata normalization
+- **Correctness gate slice:** retry-from-block hydrates previous successful upstream outputs or replays the graph, worker claims are concurrency-safe with stale-lock reclaim and per-worker heartbeats, Excel reload preserves selected sheet/range, URL ingest is HTTPS-only with private-network and size guards
+- Tests: full Vitest suite passing (`npm test` — 45 files / 185 tests); typecheck clean (`npx tsc --noEmit`); production build passing (`npm run build`)
 
 # In progress
 
-- None blocking local use
+- Trusted Analytics Core todo `correctness-gates`; audit canvas created at Cursor canvas `trusted-analytics-audit.canvas.tsx`
 
 # Next
 
-1. Configure live/sandbox PayFast merchant env + public ITN URL
-2. Production VPS deploy (requires approval)
-3. Optional IMAP / Google Drive connectors
-4. Optional Playwright E2E
+1. Add full CI/E2E harness and remaining realistic fixtures
+2. Guided Ask upload/profile/clarify/run workflow upgrades
+3. Grain-aware analytics and export routing
+4. First-class forecast diagnostics, validation, intervals, scenarios, and trust UI
+5. Decision-ready reports and Builder contract/provenance upgrades
 
 # Decisions and assumptions
 
 - PayFast is the primary payment gateway; manual EFT is fallback only
 - Ask mode shares the canvas pipeline engine (not a separate agent)
-- Forecast stays pure-TS (no ARIMA/Prophet); ensemble averages selected methods
-- URL ingest refreshes on every run (including schedules)
+- Forecast stays pure-TS for this phase, with an adapter boundary for a future statistical service
+- URL ingest refreshes on every run (including schedules) and is restricted to safe HTTPS public targets
 - Soft upload limit default is **20MB** (`MAX_UPLOAD_BYTES=20971520`)
 
 # Known risks/blockers
@@ -53,5 +56,7 @@ vNext full-scope implementation (accuracy fixtures → forecast playground → P
 # Verification status
 
 - types: pass (`pnpm exec tsc --noEmit`)
-- tests: pass (`pnpm test` — 143)
+- tests: pass (`npm test` — 45 files / 185 tests)
+- typecheck: pass (`npx tsc --noEmit`)
+- build: pass (`npm run build`; existing non-blocking React hook dependency warnings remain)
 - deployment: local Docker Compose Postgres on **5433**; VPS not authorised

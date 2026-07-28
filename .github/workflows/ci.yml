@@ -1,0 +1,67 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - main
+      - master
+
+jobs:
+  test-typecheck-build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    env:
+      DATABASE_URL: postgresql://postgres:postgres@localhost:5432/flowlytics_test
+      AUTH_SECRET: ci-auth-secret-with-at-least-32-characters
+      AUTH_URL: http://localhost:3000
+      NEXTAUTH_SECRET: ci-auth-secret-with-at-least-32-characters
+      NEXTAUTH_URL: http://localhost:3000
+      LLM_ENABLED: "false"
+      UPLOAD_DIR: /tmp/flowlytics-uploads
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_DB: flowlytics_test
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_USER: postgres
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U postgres -d flowlytics_test"
+          --health-interval 10s
+          --health-timeout 5s
+          --health-retries 5
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Node
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Install dependencies
+        run: npm ci
+
+      - name: Generate Prisma client
+        run: npx prisma generate
+
+      - name: Run tests
+        run: npm test
+
+      - name: Typecheck
+        run: npx tsc --noEmit
+
+      - name: Build
+        run: npm run build
+
+      - name: Prepare smoke database
+        run: npx prisma db push --skip-generate
+
+      - name: Smoke E2E
+        run: |
+          npm run start &
+          npm run smoke:e2e

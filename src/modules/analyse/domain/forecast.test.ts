@@ -45,6 +45,25 @@ describe("forecast", () => {
     expect(result.actual).toHaveLength(3);
   });
 
+  it("aggregates duplicate dates before forecasting", () => {
+    const result = buildForecast(
+      {
+        columns: ["Date", "Cost"],
+        rows: [
+          { Date: "2024-01-01", Cost: 10 },
+          { Date: "2024-01-01", Cost: 10 },
+          { Date: "2024-01-02", Cost: 20 },
+          { Date: "2024-01-02", Cost: 20 },
+          { Date: "2024-01-03", Cost: 30 },
+          { Date: "2024-01-03", Cost: 30 },
+        ],
+      },
+      { column: "Cost", periodColumn: "Date", periods: 2, method: "trend" },
+    );
+    expect(result.actual).toEqual([20, 40, 60]);
+    expect(result.points.filter((p) => p.series === "Forecast").length).toBe(2);
+  });
+
   it("forecasts sales with date period labels (dates need not be numeric)", () => {
     const result = buildForecast(
       {

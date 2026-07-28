@@ -11,6 +11,7 @@ const envSchema = z.object({
   ADMIN_EMAILS: z.string().default("admin@example.com"),
   UPLOAD_DIR: z.string().default("./storage/uploads"),
   MAX_UPLOAD_BYTES: z.coerce.number().default(20 * 1024 * 1024),
+  UPLOAD_RETENTION_DAYS: z.coerce.number().default(30),
   WORKER_ID: z.string().default("worker-1"),
   WORKER_CONCURRENCY: z.coerce.number().default(1),
   LLM_ENABLED: z
@@ -77,9 +78,26 @@ export type AppEnv = z.infer<typeof envSchema>;
 
 let cached: AppEnv | null = null;
 
+function assertProductionSecrets(env: AppEnv) {
+  if (process.env.NODE_ENV !== "production") return;
+  // Next evaluates route modules during `next build`; validate secrets at runtime,
+  // not while producing a local/CI artifact.
+  if (process.env.NEXT_PHASE === "phase-production-build") return;
+  if (env.AUTH_SECRET === "dev-only-change-me-please") {
+    throw new Error("AUTH_SECRET must be set to a non-default value in production.");
+  }
+  if (!env.AUTH_URL.startsWith("https://") && !env.AUTH_URL.includes("localhost")) {
+    throw new Error("AUTH_URL must be HTTPS in production.");
+  }
+  if (env.DATABASE_URL.includes("flowlytics:flowlytics@localhost")) {
+    throw new Error("DATABASE_URL must not use the default local database in production.");
+  }
+}
+
 export function getEnv(): AppEnv {
   if (cached) return cached;
   cached = envSchema.parse(process.env);
+  assertProductionSecrets(cached);
   return cached;
 }
 

@@ -15,7 +15,7 @@
 | CAP-09 | Structure: columns/order/filename; always-on CSV visual preview; save path explained | `StructureOutputPanel`, run `resultJson` / `byBlockId` | `structurePreview.test.ts` | verified (local) |
 | CAP-10 | CSV download from Structure/Forecast/Results step picker | `downloadCsv.ts`, `/api/export/csv`, Results `byBlockId` | export path exercised in UI | verified (local) |
 | CAP-11 | Manual run from canvas or home; background worker; resume poll on reopen; history + historic snapshot | `enqueueFlowRun`, worker, `FlowList` Run, `FlowEditor` `startRunPolling`, `RunHistory` | `queue.test.ts`, `runTiming.test.ts`, `runProgress.test.ts`, `runGraph.test.ts` | verified (local) |
-| CAP-12 | Fail-stop; retry from block | runner DAG + retry API | `dag.test.ts` | verified (local) |
+| CAP-12 | Fail-stop; retry from block | runner DAG + retry API; retry execution hydrates prior successful upstream outputs or replays the full graph when dependencies are missing | `dag.test.ts`, `retryHydration.test.ts` | verified (targeted) |
 | CAP-13 | Daily / weekly / custom schedules; manage/pause/delete; calendar; schedule from calendar via flow picker | `scheduleTiming.ts`, `scheduleService`, `/api/schedules`, `ScheduleCreateForm`, `/schedules` UI | `scheduleTiming.test.ts` | verified (local) |
 | CAP-14 | AI structure opt-in + BYOK; upstream input; builder lock or auto-suggest schema after Run | `aiStructure`, `structuredOutput`, `AiConfigPanel`, `applyRunOutputs` | `structuredOutput.test.ts`, `aiStructure.test.ts`, `applyRunOutputs.test.ts`, `autoMap.test.ts` | verified (local) |
 | CAP-15 | AI explain opt-in + BYOK; canvas text | `aiExplain` | AI key gate + stub | verified (local) |
@@ -27,4 +27,4 @@
 | CAP-20 | Extensible blocks via registry | `src/modules/blocks` | registry registration | verified (local) |
 | CAP-21 | Ask mode over pipeline engine | `src/modules/ask`, `/ask`, AskPanel | manual smoke + askService paths | verified (local) |
 | CAP-22 | PDF/PPTX presentation export | `src/modules/present`, `/api/export/presentation` | `presentationModel.test.ts` | verified (local) |
-| CAP-23 | URL ingest + email output connectors | `ingestUrl`, `outputEmail` blocks | ports + block registration | verified (local) |
+| CAP-23 | URL ingest + email output connectors | `ingestUrl`, `outputEmail` blocks; URL ingest is HTTPS-only, blocks private/local targets, validates redirects, and caps response size | ports + block registration, `ingestUrl.test.ts` | verified (targeted) |

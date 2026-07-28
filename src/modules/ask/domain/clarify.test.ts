@@ -20,7 +20,36 @@ describe("ask clarify", () => {
     const payload = buildClarifyPayload(table, "look at my file", "pharma.csv");
     expect(payload.datasetBrief).toMatch(/Sales/);
     expect(payload.questions.length).toBeGreaterThan(0);
-    expect(payload.questions[0]?.suggestions).toContain("Sales");
+    expect(payload.questions.some((q) => q.suggestions.includes("Sales"))).toBe(
+      true,
+    );
+  });
+
+  it("asks forecast-relevant questions when user wants a prediction", () => {
+    const payload = buildClarifyPayload(
+      table,
+      "I want to forecast next period",
+      "pharma.csv",
+    );
+    const ids = payload.questions.map((q) => q.id);
+    expect(ids).toContain("horizon");
+    expect(ids).toContain("decision");
+    expect(
+      payload.questions.find((q) => q.id === "horizon")?.prompt,
+    ).toMatch(/how far ahead/i);
+  });
+
+  it("skips measure when already named and asks for cut/decision", () => {
+    const payload = buildClarifyPayload(
+      table,
+      "Compare Sales across regions",
+      "pharma.csv",
+    );
+    const ids = payload.questions.map((q) => q.id);
+    expect(ids).not.toContain("measure");
+    expect(ids.some((id) => id === "cut" || id === "decision" || id === "horizon")).toBe(
+      true,
+    );
   });
 
   it("detects skip phrases and complete goals", () => {
@@ -29,6 +58,9 @@ describe("ask clarify", () => {
       true,
     );
     expect(goalLooksComplete("help", table)).toBe(false);
+    expect(
+      goalLooksComplete("forecast something vaguely", table),
+    ).toBe(false);
   });
 
   it("merges clarify answers into the goal", () => {
@@ -36,7 +68,11 @@ describe("ask clarify", () => {
       mergeGoalWithAnswers("Analyse my data", "Sales, next 6 months"),
     ).toMatch(/Sales/);
     expect(
-      mergeGoalWithAnswers("Analyse my data", "go ahead", "Analyse — focus on Sales"),
+      mergeGoalWithAnswers(
+        "Analyse my data",
+        "go ahead",
+        "Analyse — focus on Sales",
+      ),
     ).toMatch(/Sales/);
   });
 });

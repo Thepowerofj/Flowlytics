@@ -1,0 +1,6 @@
+InvoiceDate,CustomerEmail,Phone,Segment,Amount,Discount,Notes
+2025-01-01,alice@example.com,+27115550101,Retail,"R 1,200.50",0,paid on time
+2025-01-02,bob@example.com,+27115550102,Wholesale,"R 980",5%,late payment
+2025-01-03,,+27115550103,Retail,,0,missing amount
+not a date,carol@example.com,,Online,"R -45.00",,refund
+2025-01-05,dave@example.com,+27115550104,Online,"1 450,75",10%,comma decimal

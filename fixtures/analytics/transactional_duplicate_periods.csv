@@ -1,0 +1,9 @@
+Date,Region,Product,Units,Revenue
+2025-01-01,North,Alpha,10,1200
+2025-01-01,South,Alpha,8,980
+2025-01-02,North,Beta,5,640
+2025-01-02,South,Beta,7,810
+2025-01-03,North,Alpha,11,1340
+2025-01-03,South,Alpha,9,1110
+2025-01-04,North,Beta,4,500
+2025-01-04,South,Beta,6,740

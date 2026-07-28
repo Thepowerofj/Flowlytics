@@ -4,7 +4,7 @@ import { randomInt } from "crypto";
  * Unambiguous alphabet for bank payment references.
  * Excludes 0/O, 1/I/L so users (and tellers) mis-type less often.
  */
-const ALPHABET = "23456789ABCDEFGHJKLMNPQRSTUVWXYZ";
+const ALPHABET = "23456789ABCDEFGHJKMNPQRSTUVWXYZ";
 
 /** Display + stored form: FL-XXXXXX (8 visible chars + hyphen). */
 export const PAYMENT_REF_PREFIX = "FL";

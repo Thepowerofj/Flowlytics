@@ -1031,15 +1031,6 @@ function ProjectionConfig({
   columnFormats: Record<string, ColumnDisplayFormat>;
   onChange: (patch: Record<string, unknown>) => void;
 }) {
-  if (!columns.length) {
-    return (
-      <p className="rounded-xl bg-bg px-3 py-3 text-sm text-muted">
-        Connect upstream data first, then pick a numeric measure to forecast (dates stay as
-        labels).
-      </p>
-    );
-  }
-
   const measureCols = table ? forecastMeasureColumns(table) : columns;
   const valueOptions = measureCols.length ? measureCols : columns;
   const labelOptions = columns.filter((c) => c !== column);
@@ -1144,6 +1135,15 @@ function ProjectionConfig({
     if (!safePeriod && !periodColumn) return;
     onChangeRef.current({ periodColumn: safePeriod });
   }, [safePeriod, periodColumn]);
+
+  if (!columns.length) {
+    return (
+      <p className="rounded-xl bg-bg px-3 py-3 text-sm text-muted">
+        Connect upstream data first, then pick a numeric measure to forecast (dates stay as
+        labels).
+      </p>
+    );
+  }
 
   return (
     <div className="space-y-5">

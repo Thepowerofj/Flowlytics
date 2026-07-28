@@ -21,6 +21,14 @@ describe("analyse stats", () => {
     expect(stats[0].mean).toBe(15);
   });
 
+  it("computes min/max on large columns without call-stack overflow", () => {
+    const rows = Array.from({ length: 50_000 }, (_, i) => ({ sales: i + 1 }));
+    const stats = computeStats({ columns: ["sales"], rows });
+    expect(stats[0]?.kind).toBe("numeric");
+    expect(stats[0]?.min).toBe(1);
+    expect(stats[0]?.max).toBe(50_000);
+  });
+
   it("treats numeric-looking strings as numeric", () => {
     const stats = computeStats({
       columns: ["amount"],

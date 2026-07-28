@@ -160,3 +160,28 @@ export function extractHistoryPoints(
   });
   return out;
 }
+
+/**
+ * Sum values that share the same period label (e.g. daily sales across stores).
+ * Without this, raw transactional rows break / hide the forecast.
+ */
+export function aggregateHistoryByPeriod(points: HistoryPoint[]): HistoryPoint[] {
+  if (points.length < 2) return points;
+  const map = new Map<string, { value: number; rowIndex: number }>();
+  let hasDup = false;
+  for (const p of points) {
+    const prev = map.get(p.label);
+    if (prev) {
+      hasDup = true;
+      prev.value += p.value;
+    } else {
+      map.set(p.label, { value: p.value, rowIndex: p.rowIndex });
+    }
+  }
+  if (!hasDup && map.size === points.length) return points;
+  return [...map.entries()].map(([label, v]) => ({
+    label,
+    value: Number(v.value.toFixed(6)),
+    rowIndex: v.rowIndex,
+  }));
+}

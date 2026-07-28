@@ -2,12 +2,95 @@ import { getBlock } from "@/modules/blocks/registry";
 import type { FlowGraph } from "@/modules/blocks/domain/types";
 import { getEnv } from "@/shared/config/env";
 import { prisma } from "@/shared/lib/prisma";
-import { toJsonValue } from "@/shared/lib/json";
+import { compactJsonValue, toJsonValueSafe } from "@/shared/lib/json";
 import { callLlm } from "@/modules/ai/infrastructure/llmAdapter";
 import { decryptSecret } from "@/modules/identity/domain/secretBox";
 import { assertActiveAccess } from "@/modules/identity/application/accountAccess";
 import { inputsForNode, topologicalOrder } from "../domain/dag";
+import { retryHydrationPlan } from "../domain/retryHydration";
 import { graphForRun } from "../domain/runGraph";
+
+type RunForRetry = {
+  id: string;
+  flowId: string;
+  userId: string;
+  createdAt: Date;
+  retryFromBlockId?: string | null;
+};
+
+async function hydrateRetryOutputs(input: {
+  run: RunForRetry;
+  graph: FlowGraph;
+  fullOrder: string[];
+}): Promise<{
+  order: string[];
+  outputs: Map<string, Record<string, unknown>>;
+  result: Record<string, unknown>;
+}> {
+  const outputs = new Map<string, Record<string, unknown>>();
+  const result: Record<string, unknown> = {};
+  const retryFrom = input.run.retryFromBlockId;
+  const retryIdx = retryFrom ? input.fullOrder.indexOf(retryFrom) : -1;
+  if (!retryFrom || retryIdx < 0) {
+    return { order: input.fullOrder, outputs, result };
+  }
+
+  const previous = await prisma.flowRun.findFirst({
+    where: {
+      id: { not: input.run.id },
+      flowId: input.run.flowId,
+      userId: input.run.userId,
+      createdAt: { lt: input.run.createdAt },
+    },
+    orderBy: { createdAt: "desc" },
+    select: { id: true },
+  });
+  if (!previous) {
+    return { order: input.fullOrder, outputs, result };
+  }
+
+  const upstream = new Set(input.fullOrder.slice(0, retryIdx));
+  if (!upstream.size) {
+    return { order: input.fullOrder.slice(retryIdx), outputs, result };
+  }
+
+  const steps = await prisma.runStep.findMany({
+    where: {
+      runId: previous.id,
+      blockId: { in: [...upstream] },
+      status: "SUCCEEDED",
+    },
+    select: { blockId: true, outputJson: true },
+  });
+  for (const step of steps) {
+    if (step.outputJson && typeof step.outputJson === "object") {
+      outputs.set(step.blockId, step.outputJson as Record<string, unknown>);
+    }
+  }
+
+  const plan = retryHydrationPlan({
+    graph: input.graph,
+    fullOrder: input.fullOrder,
+    retryFromBlockId: retryFrom,
+    availableOutputIds: outputs.keys(),
+  });
+  if (!plan.hydrated) {
+    return { order: input.fullOrder, outputs: new Map(), result: {} };
+  }
+
+  const byBlockId: Record<string, Record<string, unknown>> = {};
+  for (const [blockId, output] of outputs) {
+    byBlockId[blockId] = compactJsonValue(output) as Record<string, unknown>;
+    Object.assign(result, byBlockId[blockId]);
+  }
+  result.byBlockId = byBlockId;
+
+  return {
+    order: plan.order,
+    outputs,
+    result,
+  };
+}
 
 async function notifyRunOutcome(input: {
   userId: string;
@@ -81,24 +164,26 @@ export async function executeRun(runId: string, workerId: string) {
     : null;
 
   const graph = graphForRun(run, run.flow);
-  let order = topologicalOrder(graph);
-  if (run.retryFromBlockId) {
-    const idx = order.indexOf(run.retryFromBlockId);
-    if (idx >= 0) order = order.slice(idx);
-  }
+  const fullOrder = topologicalOrder(graph);
+  const hydrated = await hydrateRetryOutputs({
+    run,
+    graph,
+    fullOrder,
+  });
+  const order = hydrated.order;
 
   await prisma.flowRun.update({
     where: { id: runId },
     data: { status: "RUNNING", startedAt: new Date(), currentBlockId: order[0] },
   });
   await prisma.workerHeartbeat.upsert({
-    where: { id: "default" },
-    create: { id: "default", busy: true, lastSeen: new Date(), metaJson: { workerId } },
+    where: { id: workerId },
+    create: { id: workerId, busy: true, lastSeen: new Date(), metaJson: { workerId } },
     update: { busy: true, lastSeen: new Date(), metaJson: { workerId } },
   });
 
-  const outputs = new Map<string, Record<string, unknown>>();
-  const result: Record<string, unknown> = {};
+  const outputs = hydrated.outputs;
+  const result: Record<string, unknown> = hydrated.result;
 
   try {
     for (const nodeId of order) {
@@ -136,19 +221,22 @@ export async function executeRun(runId: string, workerId: string) {
             : undefined,
         });
         outputs.set(nodeId, output);
+        // Persist a compacted copy — keep full output in-memory for downstream blocks
+        const persistOut = compactJsonValue(output) as Record<string, unknown>;
         // Keep last-wins keys for Results panel convenience, plus per-block map
         // so later steps don't erase earlier tables (stats/chart/structure).
         const byBlock =
           (result.byBlockId as Record<string, Record<string, unknown>> | undefined) ??
           {};
-        byBlock[nodeId] = output;
+        byBlock[nodeId] = persistOut;
         result.byBlockId = byBlock;
-        Object.assign(result, output);
+        Object.assign(result, persistOut);
+        const stepJson = toJsonValueSafe(persistOut, `step:${node.type}`);
         await prisma.runStep.update({
           where: { id: step.id },
           data: {
             status: "SUCCEEDED",
-            outputJson: toJsonValue(output),
+            outputJson: stepJson.value,
             finishedAt: new Date(),
           },
         });
@@ -185,13 +273,19 @@ export async function executeRun(runId: string, workerId: string) {
       }
     }
 
+    const resultJson = toJsonValueSafe(result, "run-result");
     await prisma.flowRun.update({
       where: { id: runId },
       data: {
         status: "SUCCEEDED",
-        resultJson: toJsonValue(result),
+        resultJson: resultJson.value,
         finishedAt: new Date(),
         currentBlockId: null,
+        ...(resultJson.compacted
+          ? {
+              errorMessage: null,
+            }
+          : {}),
       },
     });
     void notifyRunOutcome({
@@ -203,7 +297,7 @@ export async function executeRun(runId: string, workerId: string) {
     }).catch((err) => console.error("[mail] run success", err));
   } finally {
     await prisma.workerHeartbeat.update({
-      where: { id: "default" },
+      where: { id: workerId },
       data: { busy: false, lastSeen: new Date() },
     });
   }

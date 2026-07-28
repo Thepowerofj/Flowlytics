@@ -250,3 +250,121 @@ export function summarizeForNode(
   const highlights = businessInsightLines(table, formats).slice(0, 5);
   return { rows: table.rows.length, columns: table.columns.length, highlights };
 }
+
+/** Coerce unknown chart insights into a safe string list for UI / LLM meta. */
+export function asInsightLines(value: unknown, max = 8): string[] {
+  if (Array.isArray(value)) {
+    const lines: string[] = [];
+    for (const item of value) {
+      if (typeof item === "string") {
+        const t = item.trim();
+        if (t && !t.startsWith("…+")) lines.push(t);
+        continue;
+      }
+      if (item && typeof item === "object") {
+        const o = item as { title?: unknown; detail?: unknown };
+        const title = typeof o.title === "string" ? o.title.trim() : "";
+        const detail = typeof o.detail === "string" ? o.detail.trim() : "";
+        const line = detail ? `${title}: ${detail}` : title;
+        if (line) lines.push(line);
+      }
+    }
+    return lines.slice(0, max);
+  }
+  if (typeof value === "string" && value.trim()) {
+    // Persisted/corrupt meta sometimes stores a single string instead of string[]
+    return value
+      .split(/\n+/)
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .slice(0, max);
+  }
+  return [];
+}
+
+/**
+ * Keep the newest history + all forecast points so orange outlook isn't sliced off.
+ */
+export function truncateChartPoints(
+  points: ChartPoint[],
+  max: number,
+): ChartPoint[] {
+  if (points.length <= max) return points;
+  const forecast = points.filter((p) => p.series === "Forecast");
+  const actual = points.filter((p) => p.series !== "Forecast");
+  const forecastKeep = Math.min(
+    forecast.length,
+    Math.max(3, Math.floor(max / 3)),
+  );
+  const actualKeep = Math.max(0, max - forecastKeep);
+  return [
+    ...actual.slice(-actualKeep),
+    ...forecast.slice(0, forecastKeep),
+  ];
+}
+
+function asChartPoints(value: unknown, max = 48): ChartPoint[] {
+  if (!Array.isArray(value)) return [];
+  const parsed: ChartPoint[] = [];
+  for (const item of value) {
+    if (!item || typeof item !== "object" || Array.isArray(item)) continue;
+    const p = item as Record<string, unknown>;
+    const y = typeof p.y === "number" ? p.y : Number(p.y);
+    if (!Number.isFinite(y)) continue;
+    const point: ChartPoint = {
+      x: String(p.x ?? ""),
+      y,
+    };
+    if (p.series === "Actual" || p.series === "Forecast") {
+      point.series = p.series;
+    }
+    if (typeof p.low === "number" || p.low === null) point.low = p.low as number | null;
+    if (typeof p.high === "number" || p.high === null) {
+      point.high = p.high as number | null;
+    }
+    parsed.push(point);
+  }
+  return truncateChartPoints(parsed, max);
+}
+
+/**
+ * Normalize chart JSON from runs / chat meta so MiniChart never crashes
+ * on compacted or half-corrupt payloads (e.g. insights stored as a string).
+ */
+export function normalizeChartSpec(raw: unknown): ChartSpec | null {
+  if (!raw || typeof raw !== "object") return null;
+  const c = raw as Record<string, unknown>;
+  const type = c.type;
+  if (type !== "bar" && type !== "line" && type !== "pie") return null;
+  if (typeof c.title !== "string" || !c.title.trim()) return null;
+
+  const points = asChartPoints(c.points, 48);
+  if (!points.length) return null;
+
+  const spec: ChartSpec = {
+    type,
+    title: c.title.trim(),
+    xLabel: typeof c.xLabel === "string" ? c.xLabel : "X",
+    yLabel: typeof c.yLabel === "string" ? c.yLabel : "Y",
+    points,
+    insights: asInsightLines(c.insights, 4),
+    totalPoints:
+      typeof c.totalPoints === "number" && Number.isFinite(c.totalPoints)
+        ? c.totalPoints
+        : typeof c._pointsTruncated === "number"
+          ? c._pointsTruncated
+          : points.length,
+  };
+  if (c.forecastSplit === true) spec.forecastSplit = true;
+  if (c.valueFormat && typeof c.valueFormat === "object") {
+    spec.valueFormat = c.valueFormat as ChartSpec["valueFormat"];
+  }
+  return spec;
+}
+
+export function normalizeChartSpecs(raw: unknown): ChartSpec[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((item) => normalizeChartSpec(item))
+    .filter((c): c is ChartSpec => Boolean(c));
+}

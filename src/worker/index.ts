@@ -6,6 +6,34 @@ import { getEnv } from "@/shared/config/env";
 
 const env = getEnv();
 const workerId = env.WORKER_ID;
+const STALE_LOCK_MS = 5 * 60_000;
+
+async function reclaimStaleJobs() {
+  const staleBefore = new Date(Date.now() - STALE_LOCK_MS);
+  const stale = await prisma.job.findMany({
+    where: {
+      status: { in: ["CLAIMED", "RUNNING"] },
+      lockedAt: { lt: staleBefore },
+    },
+    select: { id: true, runId: true },
+    take: 20,
+  });
+  for (const job of stale) {
+    await prisma.$transaction([
+      prisma.job.update({
+        where: { id: job.id },
+        data: { status: "PENDING", lockedAt: null, lockedBy: null },
+      }),
+      prisma.flowRun.updateMany({
+        where: { id: job.runId, status: { in: ["QUEUED", "RUNNING"] } },
+        data: { status: "QUEUED", currentBlockId: null },
+      }),
+    ]);
+  }
+  if (stale.length) {
+    console.warn(`[worker] reclaimed ${stale.length} stale job(s)`);
+  }
+}
 
 async function claimNextJob() {
   return prisma.$transaction(async (tx) => {
@@ -14,8 +42,8 @@ async function claimNextJob() {
       orderBy: [{ priority: "asc" }, { createdAt: "asc" }],
     });
     if (!job) return null;
-    return tx.job.update({
-      where: { id: job.id },
+    const claimed = await tx.job.updateMany({
+      where: { id: job.id, status: "PENDING" },
       data: {
         status: "CLAIMED",
         lockedAt: new Date(),
@@ -23,6 +51,8 @@ async function claimNextJob() {
         attempts: { increment: 1 },
       },
     });
+    if (claimed.count !== 1) return null;
+    return tx.job.findUnique({ where: { id: job.id } });
   });
 }
 
@@ -56,10 +86,11 @@ async function loop() {
   for (;;) {
     try {
       await prisma.workerHeartbeat.upsert({
-        where: { id: "default" },
-        create: { id: "default", busy: false, lastSeen: new Date(), metaJson: { workerId } },
+        where: { id: workerId },
+        create: { id: workerId, busy: false, lastSeen: new Date(), metaJson: { workerId } },
         update: { lastSeen: new Date(), metaJson: { workerId } },
       });
+      await reclaimStaleJobs();
       await tickSchedules();
       const { expireDueAccounts } = await import(
         "@/modules/identity/application/accountAccess"
@@ -67,6 +98,13 @@ async function loop() {
       const expired = await expireDueAccounts();
       if (expired > 0) {
         console.log(`[worker] expired ${expired} account(s)`);
+      }
+      const { cleanupExpiredUploads } = await import(
+        "@/modules/ingest/application/cleanupUploadedFiles"
+      );
+      const cleanedUploads = await cleanupExpiredUploads();
+      if (cleanedUploads > 0) {
+        console.log(`[worker] cleaned ${cleanedUploads} expired upload(s)`);
       }
       await refreshQueueEtas();
 

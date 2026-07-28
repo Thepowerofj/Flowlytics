@@ -459,7 +459,7 @@ a {
   color: var(--muted);
 }
 
-/* Quiet sample marker — hover native tooltip explains Run-for-full-data */
+/* Quiet sample marker ? hover native tooltip explains Run-for-full-data */
 .activity-node__sample-dot {
   position: absolute;
   top: 10px;
@@ -1794,7 +1794,7 @@ button.chart-viz__bar-col {
   max-height: min(86vh, 780px);
 }
 
-/* Clean/Map master–detail */
+/* Clean/Map master?detail */
 .clean-map {
   display: flex;
   flex-direction: column;
@@ -2714,7 +2714,7 @@ button.chart-viz__bar-col {
   letter-spacing: -0.03em;
 }
 
-/* Landing pipeline demo — flex row so arrows always meet node handles */
+/* Landing pipeline demo ? flex row so arrows always meet node handles */
 .pipeline-preview {
   width: 100%;
   max-width: 560px;
@@ -2811,7 +2811,7 @@ button.chart-viz__bar-col {
   background: #fff;
   box-shadow: var(--shadow-node);
   opacity: 0;
-  /* Scale/fade only — no Y drift so handles stay on the connector centerline */
+  /* Scale/fade only ? no Y drift so handles stay on the connector centerline */
   transform: scale(0.96);
 }
 
@@ -2896,7 +2896,7 @@ button.chart-viz__bar-col {
   color: var(--muted);
 }
 
-/* Shared timeline: appear → connect → pulse → chart → hold → reset */
+/* Shared timeline: appear ? connect ? pulse ? chart ? hold ? reset */
 @keyframes pipeline-node-1 {
   0% {
     opacity: 0;
@@ -3124,35 +3124,28 @@ button.chart-viz__bar-col {
 }
 
 
-/* --- Ask chat surface --- */
+/* --- Ask chat surface (flat, simple) --- */
 .ask-shell {
   --ask-user: #0f1f1c;
-  --ask-assist: color-mix(in srgb, var(--surface) 88%, var(--accent-soft));
-  --ask-clarify: color-mix(in srgb, var(--forecast-soft) 55%, white);
 }
 
 .ask-sidebar {
-  background: linear-gradient(
-    180deg,
-    color-mix(in srgb, var(--accent-soft) 35%, white),
-    var(--surface)
-  );
+  background: var(--surface);
 }
 
 .ask-thread-btn:hover {
-  background: color-mix(in srgb, var(--accent-soft) 45%, transparent);
+  background: var(--bg);
 }
 
 .ask-thread-btn--active {
-  background: var(--accent-soft);
-  color: var(--accent-deep);
+  background: var(--bg);
+  color: var(--ink);
   font-weight: 600;
+  border: 1px solid var(--border);
 }
 
 .ask-main {
-  background:
-    radial-gradient(1200px 400px at 10% -10%, color-mix(in srgb, var(--accent-soft) 55%, transparent), transparent),
-    var(--surface);
+  background: var(--surface);
 }
 
 .ask-scroll {
@@ -3162,36 +3155,27 @@ button.chart-viz__bar-col {
 .ask-empty__title {
   font-family: var(--font-display);
   font-size: 1.15rem;
-  color: var(--accent-deep);
+  color: var(--ink);
 }
 
 .ask-bubble {
   max-width: min(52rem, 94%);
-  border-radius: 1.15rem;
+  border-radius: 0.85rem;
   padding: 0.85rem 1rem;
-  box-shadow: 0 6px 18px rgba(15, 31, 28, 0.05);
-  animation: settle-in 220ms ease both;
+  border: 1px solid var(--border);
+  background: #fff;
 }
 
 .ask-bubble--user {
   margin-left: auto;
-  background: linear-gradient(145deg, #142824, var(--ask-user));
+  background: var(--ask-user);
+  border-color: var(--ask-user);
   color: white;
 }
 
-.ask-bubble--assistant {
-  background: var(--ask-assist);
-  border: 1px solid color-mix(in srgb, var(--accent) 18%, var(--border));
-  color: var(--ink);
-}
-
+.ask-bubble--assistant,
 .ask-bubble--clarify {
-  background: linear-gradient(
-    160deg,
-    var(--ask-clarify),
-    color-mix(in srgb, var(--accent-soft) 40%, white)
-  );
-  border: 1px solid color-mix(in srgb, var(--forecast) 28%, var(--border));
+  background: #fff;
   color: var(--ink);
 }
 
@@ -3203,23 +3187,24 @@ button.chart-viz__bar-col {
   font-weight: 700;
   letter-spacing: 0.04em;
   text-transform: uppercase;
-  color: var(--forecast-deep);
-  background: color-mix(in srgb, var(--forecast-soft) 80%, white);
-  border-radius: 999px;
+  color: var(--muted);
+  background: var(--bg);
+  border: 1px solid var(--border);
+  border-radius: 0.4rem;
   padding: 0.2rem 0.55rem;
 }
 
 .ask-clarify-block {
-  border-radius: 0.85rem;
-  background: color-mix(in srgb, white 80%, transparent);
-  border: 1px solid color-mix(in srgb, var(--accent) 14%, var(--border));
+  border-radius: 0.65rem;
+  background: var(--bg);
+  border: 1px solid var(--border);
   padding: 0.65rem 0.75rem;
 }
 
 .ask-clarify-block__prompt {
   font-size: 0.8rem;
   font-weight: 600;
-  color: var(--accent-deep);
+  color: var(--ink);
   margin-bottom: 0.45rem;
 }
 
@@ -3230,30 +3215,29 @@ button.chart-viz__bar-col {
 }
 
 .ask-chip {
-  border: 1px solid color-mix(in srgb, var(--accent) 35%, var(--border));
-  background: white;
-  color: var(--accent-deep);
+  border: 1px solid var(--border);
+  background: #fff;
+  color: var(--ink);
   font-size: 0.78rem;
   font-weight: 600;
-  border-radius: 999px;
+  border-radius: 0.45rem;
   padding: 0.3rem 0.7rem;
-  transition: background 140ms ease, border-color 140ms ease, transform 140ms ease;
 }
 
 .ask-chip:hover {
-  background: var(--accent-soft);
   border-color: var(--accent);
-  transform: translateY(-1px);
 }
 
-.ask-chip-label {
-  color: var(--muted);
+.ask-chip--selected {
+  border-color: var(--accent-deep);
+  background: color-mix(in srgb, var(--accent-soft) 55%, white);
+  color: var(--accent-deep);
 }
 
 .ask-chart-card,
 .ask-table-card {
   overflow: hidden;
-  border-radius: 0.9rem;
+  border-radius: 0.65rem;
   border: 1px solid var(--border);
   background: white;
 }
@@ -3268,11 +3252,11 @@ button.chart-viz__bar-col {
   justify-content: space-between;
   gap: 0.5rem;
   border-bottom: 1px solid var(--border);
-  background: color-mix(in srgb, var(--accent-soft) 40%, white);
+  background: var(--bg);
   padding: 0.4rem 0.75rem;
   font-size: 0.7rem;
   font-weight: 600;
-  color: var(--accent-deep);
+  color: var(--muted);
 }
 
 .ask-attach-ready {
@@ -3280,9 +3264,9 @@ button.chart-viz__bar-col {
   flex-wrap: wrap;
   align-items: center;
   gap: 0.5rem;
-  border-radius: 0.85rem;
-  border: 1px solid color-mix(in srgb, var(--accent) 25%, var(--border));
-  background: color-mix(in srgb, var(--accent-soft) 50%, white);
+  border-radius: 0.65rem;
+  border: 1px solid var(--border);
+  background: var(--bg);
   padding: 0.5rem 0.75rem;
   font-size: 0.875rem;
   color: var(--ink);
@@ -3291,9 +3275,184 @@ button.chart-viz__bar-col {
 .ask-status-line {
   font-size: 0.75rem;
   font-weight: 600;
-  color: var(--accent-deep);
+  color: var(--muted);
 }
 
 .ask-rich strong {
   letter-spacing: -0.01em;
+}
+
+.ask-bubble--pipe {
+  max-width: min(52rem, 94%);
+}
+
+.ask-pipe {
+  border-radius: 0.75rem;
+  border: 1px solid var(--border);
+  background: var(--bg);
+  padding: 0.75rem 0.85rem;
+}
+
+.ask-pipe--live {
+  border-color: color-mix(in srgb, var(--accent) 45%, var(--border));
+  box-shadow: 0 0 0 1px color-mix(in srgb, var(--accent-soft) 40%, transparent);
+}
+
+.ask-pipe__head {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 0.5rem;
+}
+
+.ask-pipe__eyebrow {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.4rem;
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--muted);
+}
+
+.ask-pipe__title {
+  margin-top: 0.15rem;
+  font-size: 0.9rem;
+  font-weight: 600;
+  color: var(--ink);
+}
+
+.ask-pipe__now {
+  font-weight: 500;
+  color: var(--accent-deep);
+}
+
+.ask-pipe__pulse {
+  width: 0.45rem;
+  height: 0.45rem;
+  border-radius: 999px;
+  background: var(--accent);
+  animation: ask-pulse 1.1s ease-in-out infinite;
+}
+
+.ask-pipe__track {
+  margin-top: 0.65rem;
+  height: 3px;
+  overflow: hidden;
+  border-radius: 999px;
+  background: color-mix(in srgb, var(--border) 80%, white);
+}
+
+.ask-pipe__track-bar {
+  height: 100%;
+  width: 40%;
+  border-radius: inherit;
+  background: linear-gradient(
+    90deg,
+    transparent,
+    var(--accent),
+    transparent
+  );
+  animation: ask-track 1.35s ease-in-out infinite;
+}
+
+.ask-pipe__steps {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 0.25rem 0.15rem;
+  margin-top: 0.7rem;
+  list-style: none;
+  padding: 0;
+}
+
+.ask-pipe__step {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.15rem;
+}
+
+.ask-pipe__arrow {
+  color: var(--border);
+  margin-right: 0.1rem;
+  font-size: 0.75rem;
+}
+
+.ask-pipe__chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 0.3rem;
+  border-radius: 0.45rem;
+  border: 1px solid var(--border);
+  background: #fff;
+  color: var(--muted);
+  font-size: 0.72rem;
+  font-weight: 600;
+  padding: 0.28rem 0.55rem;
+  transition:
+    color 160ms ease,
+    border-color 160ms ease,
+    background 160ms ease,
+    transform 160ms ease;
+}
+
+.ask-pipe__step--done .ask-pipe__chip {
+  color: var(--ink);
+  border-color: color-mix(in srgb, var(--success, #027a48) 35%, var(--border));
+  background: color-mix(in srgb, var(--success, #027a48) 8%, white);
+}
+
+.ask-pipe__step--active .ask-pipe__chip {
+  color: var(--accent-deep);
+  border-color: var(--accent);
+  background: color-mix(in srgb, var(--accent-soft) 55%, white);
+  transform: translateY(-1px);
+}
+
+.ask-pipe__step--failed .ask-pipe__chip {
+  color: var(--danger);
+  border-color: color-mix(in srgb, var(--danger) 40%, var(--border));
+}
+
+.ask-pipe__check {
+  font-size: 0.65rem;
+  color: var(--success, #027a48);
+}
+
+.ask-pipe__spinner {
+  width: 0.55rem;
+  height: 0.55rem;
+  border-radius: 999px;
+  border: 1.5px solid color-mix(in srgb, var(--accent) 35%, white);
+  border-top-color: var(--accent-deep);
+  animation: ask-spin 0.7s linear infinite;
+}
+
+@keyframes ask-spin {
+  to {
+    transform: rotate(360deg);
+  }
+}
+
+@keyframes ask-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scale(0.85);
+  }
+  50% {
+    opacity: 1;
+    transform: scale(1.05);
+  }
+}
+
+@keyframes ask-track {
+  0% {
+    transform: translateX(-120%);
+  }
+  100% {
+    transform: translateX(280%);
+  }
 }

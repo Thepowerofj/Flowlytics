@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { AskMessageExtras, type AskMessageMeta } from "./AskMessageExtras";
-import { AskPipelineStrip } from "./AskPipelineStrip";
+import { AskPipelineProgress } from "./AskPipelineProgress";
 
 type Thread = { id: string; title: string; flowId: string | null };
 type Message = {
@@ -31,6 +31,8 @@ export function AskPanel() {
   const [flowName, setFlowName] = useState<string | null>(null);
   const [pipelineSteps, setPipelineSteps] = useState<string[]>([]);
   const [runStatus, setRunStatus] = useState<string | null>(null);
+  const [currentStepType, setCurrentStepType] = useState<string | null>(null);
+  const [activeRunId, setActiveRunId] = useState<string | null>(null);
   const [input, setInput] = useState("");
   const [attached, setAttached] = useState<AttachedFile | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -54,7 +56,9 @@ export function AskPanel() {
     setThreadId(json.id);
     setFlowId(json.flowId ?? json.flow?.id ?? null);
     setFlowName(json.flow?.name ?? null);
-    setPipelineSteps(Array.isArray(json.pipelineSteps) ? json.pipelineSteps : []);
+    setPipelineSteps(
+      Array.isArray(json.pipelineSteps) ? json.pipelineSteps : [],
+    );
     setMessages(json.messages ?? []);
 
     const msgs = (json.messages ?? []) as Message[];
@@ -62,13 +66,25 @@ export function AskPanel() {
     setAwaitingClarify(last?.metaJson?.kind === "clarify");
     const lastWithStatus = [...msgs].reverse().find((m) => m.metaJson?.status);
     setRunStatus(lastWithStatus?.metaJson?.status ?? null);
-    const lastSteps = [...msgs]
-      .reverse()
-      .find((m) => m.metaJson?.steps?.length || m.metaJson?.plan?.steps?.length);
-    if (lastSteps?.metaJson?.steps?.length) {
-      setPipelineSteps(lastSteps.metaJson.steps);
-    } else if (lastSteps?.metaJson?.plan?.steps?.length) {
-      setPipelineSteps(lastSteps.metaJson.plan.steps);
+    setCurrentStepType(lastWithStatus?.metaJson?.currentStepType ?? null);
+    const lastSteps = [...msgs].reverse().find((m) => {
+      const steps = m.metaJson?.steps;
+      const planSteps = m.metaJson?.plan?.steps;
+      return (
+        (Array.isArray(steps) && steps.length > 0) ||
+        (Array.isArray(planSteps) && planSteps.length > 0)
+      );
+    });
+    const fromMeta = lastSteps?.metaJson?.steps;
+    const fromPlan = lastSteps?.metaJson?.plan?.steps;
+    if (Array.isArray(fromMeta) && fromMeta.length) {
+      setPipelineSteps(
+        fromMeta.filter((t): t is string => typeof t === "string"),
+      );
+    } else if (Array.isArray(fromPlan) && fromPlan.length) {
+      setPipelineSteps(
+        fromPlan.filter((t): t is string => typeof t === "string"),
+      );
     }
     if (lastSteps?.metaJson?.flowName) {
       setFlowName(lastSteps.metaJson.flowName);
@@ -83,7 +99,7 @@ export function AskPanel() {
     const el = scrollerRef.current;
     if (!el) return;
     el.scrollTop = el.scrollHeight;
-  }, [messages, busy]);
+  }, [messages, busy, currentStepType, runStatus]);
 
   async function ensureThread(): Promise<string> {
     if (threadId) return threadId;
@@ -100,9 +116,11 @@ export function AskPanel() {
   }
 
   async function pollRun(tid: string, runId: string) {
-    for (let i = 0; i < 90; i++) {
-      await new Promise((r) => setTimeout(r, 1500));
-      const res = await fetch(`/api/ask/threads/${tid}/runs/${runId}`);
+    let watching = runId;
+    setActiveRunId(watching);
+    for (let i = 0; i < 160; i++) {
+      await new Promise((r) => setTimeout(r, 900));
+      const res = await fetch(`/api/ask/threads/${tid}/runs/${watching}`);
       const json = await res.json();
       if (!res.ok) break;
       if (json.status) setRunStatus(json.status);
@@ -110,11 +128,30 @@ export function AskPanel() {
       if (Array.isArray(json.steps) && json.steps.length) {
         setPipelineSteps(json.steps);
       }
+      if (typeof json.currentStepType === "string" || json.currentStepType === null) {
+        setCurrentStepType(json.currentStepType ?? null);
+      }
+      // Backend auto-healed a failed run → follow the new runId quietly
+      if (
+        json.healed &&
+        typeof json.runId === "string" &&
+        json.runId &&
+        json.runId !== watching
+      ) {
+        watching = json.runId as string;
+        setActiveRunId(watching);
+        setRunStatus("QUEUED");
+        await loadThread(tid);
+        continue;
+      }
       if (!json.pending) {
+        setActiveRunId(null);
+        setCurrentStepType(null);
         await loadThread(tid);
         return;
       }
     }
+    setActiveRunId(null);
     await loadThread(tid);
   }
 
@@ -163,7 +200,16 @@ export function AskPanel() {
       if (attached) {
         payload.fileId = attached.fileId;
         payload.fileName = attached.fileName;
-        payload.table = attached.table;
+        const t = attached.table as {
+          columns?: string[];
+          rows?: unknown[];
+        } | null;
+        if (t?.columns?.length && Array.isArray(t.rows)) {
+          payload.table = {
+            columns: t.columns,
+            rows: t.rows.slice(0, 40),
+          };
+        }
       }
       const res = await fetch(`/api/ask/threads/${tid}/message`, {
         method: "POST",
@@ -176,7 +222,7 @@ export function AskPanel() {
       if (json.phase === "clarify") {
         setAwaitingClarify(true);
         setRunStatus(null);
-        // Keep file attached so the user can refine before build
+        setCurrentStepType(null);
         await loadThread(tid);
         return;
       }
@@ -188,12 +234,19 @@ export function AskPanel() {
       if (Array.isArray(json.steps)) setPipelineSteps(json.steps);
       await loadThread(tid);
       if (json.runId) {
-        setRunStatus("RUNNING");
+        setRunStatus("QUEUED");
+        setCurrentStepType(
+          Array.isArray(json.steps) && json.steps[0]
+            ? String(json.steps[0])
+            : null,
+        );
         await pollRun(tid, json.runId);
       }
     } catch (e) {
       setError(e instanceof Error ? e.message : "Send failed");
       setRunStatus(null);
+      setCurrentStepType(null);
+      setActiveRunId(null);
     } finally {
       setBusy(false);
     }
@@ -206,10 +259,17 @@ export function AskPanel() {
     setFlowName(null);
     setPipelineSteps([]);
     setRunStatus(null);
+    setCurrentStepType(null);
+    setActiveRunId(null);
     setAttached(null);
     setAwaitingClarify(false);
     void ensureThread();
   }
+
+  const liveRunning =
+    Boolean(activeRunId) &&
+    Boolean(runStatus) &&
+    ["QUEUED", "RUNNING"].includes(runStatus!);
 
   return (
     <div className="ask-shell grid h-full min-h-0 grid-rows-[auto_minmax(0,1fr)] gap-3 lg:grid-cols-[260px_minmax(0,1fr)] lg:grid-rows-none">
@@ -239,13 +299,6 @@ export function AskPanel() {
       </aside>
 
       <section className="panel ask-main flex min-h-0 flex-col gap-3 p-4">
-        <AskPipelineStrip
-          flowId={flowId}
-          flowName={flowName}
-          steps={pipelineSteps}
-          runStatus={runStatus}
-        />
-
         <div
           ref={scrollerRef}
           className="ask-scroll min-h-0 flex-1 space-y-3 overflow-y-auto pr-1"
@@ -254,37 +307,59 @@ export function AskPanel() {
             <div className="ask-empty space-y-2 text-sm">
               <p className="ask-empty__title">Start with a file + a goal</p>
               <p className="text-muted">
-                Attach CSV/Excel, tell us what you want to learn, and we’ll scan the
-                data, ask a few sharp questions, then build and run the pipeline.
+                Attach CSV/Excel, tell us what you want to learn, and we’ll scan
+                the data, ask a few sharp questions, then build and run the
+                pipeline.
               </p>
             </div>
           ) : null}
-          {messages.map((m) => (
-            <div
-              key={m.id}
-              className={
-                m.role === "user"
-                  ? "ask-bubble ask-bubble--user"
-                  : m.metaJson?.kind === "clarify"
-                    ? "ask-bubble ask-bubble--clarify"
-                    : "ask-bubble ask-bubble--assistant"
-              }
-            >
-              <AskMessageExtras
-                role={m.role}
-                content={m.content}
-                runId={m.runId}
-                meta={m.metaJson}
-                onSuggest={(text, opts) => void sendMessage(text, opts)}
+          {messages.map((m) => {
+            const isLiveMsg =
+              liveRunning && activeRunId && m.runId === activeRunId;
+            return (
+              <div
+                key={m.id}
+                className={
+                  m.role === "user"
+                    ? "ask-bubble ask-bubble--user"
+                    : m.metaJson?.kind === "clarify"
+                      ? "ask-bubble ask-bubble--clarify"
+                      : m.metaJson?.kind === "run_progress"
+                        ? "ask-bubble ask-bubble--assistant ask-bubble--pipe"
+                        : "ask-bubble ask-bubble--assistant"
+                }
+              >
+                <AskMessageExtras
+                  role={m.role}
+                  content={m.content}
+                  runId={m.runId}
+                  meta={m.metaJson}
+                  onGoAhead={(text, opts) => void sendMessage(text, opts)}
+                  liveStatus={isLiveMsg ? runStatus : null}
+                  liveStepType={isLiveMsg ? currentStepType : null}
+                />
+              </div>
+            );
+          })}
+
+          {liveRunning &&
+          !messages.some((m) => m.runId === activeRunId) &&
+          pipelineSteps.length ? (
+            <div className="ask-bubble ask-bubble--assistant ask-bubble--pipe">
+              <AskPipelineProgress
+                flowId={flowId}
+                flowName={flowName}
+                steps={pipelineSteps}
+                runStatus={runStatus}
+                currentStepType={currentStepType}
               />
             </div>
-          ))}
-          {busy && runStatus && ["QUEUED", "RUNNING"].includes(runStatus) ? (
-            <p className="ask-status-line">Pipeline {runStatus.toLowerCase()}…</p>
           ) : null}
+
           {awaitingClarify && !busy ? (
             <p className="ask-status-line">
-              Answer the questions above (or tap a chip) — then we’ll build.
+              Fill each answer box above, then click Go ahead — the pipeline
+              won’t start until then.
             </p>
           ) : null}
         </div>
@@ -334,15 +409,15 @@ export function AskPanel() {
               value={input}
               placeholder={
                 awaitingClarify
-                  ? "Your picks… or type go ahead"
+                  ? "Use the answer boxes above, then Go ahead"
                   : attached
                     ? "What should we analyse in this file?"
                     : "Ask about your data… or attach a file first"
               }
-              disabled={busy || uploading}
+              disabled={busy || uploading || awaitingClarify}
               onChange={(e) => setInput(e.target.value)}
               onKeyDown={(e) => {
-                if (e.key === "Enter" && !e.shiftKey) {
+                if (e.key === "Enter" && !e.shiftKey && !awaitingClarify) {
                   e.preventDefault();
                   void sendMessage(input);
                 }
@@ -351,10 +426,17 @@ export function AskPanel() {
             <button
               type="button"
               className="btn btn-primary"
-              disabled={busy || uploading || !input.trim()}
+              disabled={
+                busy || uploading || awaitingClarify || !input.trim()
+              }
               onClick={() => void sendMessage(input)}
+              title={
+                awaitingClarify
+                  ? "Use Go ahead on the questions above"
+                  : undefined
+              }
             >
-              {busy ? "Working…" : awaitingClarify ? "Continue" : "Send"}
+              {busy ? "Working…" : "Send"}
             </button>
           </div>
         </div>

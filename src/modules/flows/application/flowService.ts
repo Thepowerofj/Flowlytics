@@ -1,7 +1,7 @@
 import type { FlowGraph } from "@/modules/blocks";
 import { prisma } from "@/shared/lib/prisma";
 import { AppError } from "@/shared/lib/errors";
-import { toJsonValue } from "@/shared/lib/json";
+import { toJsonValueSafe } from "@/shared/lib/json";
 
 export async function listFlows(userId: string) {
   const flows = await prisma.flow.findMany({
@@ -42,7 +42,7 @@ export async function getFlowForUser(flowId: string, userId: string) {
 export async function createFlow(userId: string, name: string) {
   const graph: FlowGraph = { nodes: [], edges: [] };
   return prisma.flow.create({
-    data: { userId, name, graphJson: toJsonValue(graph) },
+    data: { userId, name, graphJson: toJsonValueSafe(graph, "flow-graph").value },
   });
 }
 
@@ -53,7 +53,11 @@ export async function createFlowWithGraph(
   graph: FlowGraph,
 ) {
   return prisma.flow.create({
-    data: { userId, name, graphJson: toJsonValue(graph) },
+    data: {
+      userId,
+      name,
+      graphJson: toJsonValueSafe(graph, "flow-graph").value,
+    },
   });
 }
 
@@ -66,7 +70,10 @@ export async function saveFlowGraph(
   await getFlowForUser(flowId, userId);
   return prisma.flow.update({
     where: { id: flowId },
-    data: { name, graphJson: toJsonValue(graph) },
+    data: {
+      name,
+      graphJson: toJsonValueSafe(graph, "flow-graph").value,
+    },
   });
 }
 

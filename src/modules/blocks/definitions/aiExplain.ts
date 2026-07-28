@@ -41,15 +41,35 @@ export const aiExplainBlock: BlockDefinition = {
     const stats = computeStats(source);
     const baseline = buildBaselineInsightReport(source, stats);
     baseline.headline = "What your data shows";
+    const datasetMeta = String(config.datasetMeta ?? "").trim().slice(0, 700);
+    const metaOnly =
+      config.contextMode === "meta" ||
+      config.skipRawSample === true ||
+      Boolean(config.followUp);
+    const { safeJsonSlice } = await import("@/shared/lib/json");
+    const statsBlock = metaOnly
+      ? `${datasetMeta ? `DATASET METADATA:\n${datasetMeta}\n\n` : ""}STATS (compact):
+${safeJsonSlice(
+  stats.slice(0, 6).map((s) => ({
+    column: s.column,
+    kind: s.kind,
+    min: s.min,
+    max: s.max,
+    mean: s.mean,
+  })),
+  900,
+)}`
+      : `STATS:
+${safeJsonSlice(stats, 2000)}`;
 
     const prompt = `Explain these spreadsheet stats for a small-business owner.
 Return ONLY JSON matching this shape (no markdown):
 ${EXPLAIN_JSON_SCHEMA}
 
 Keep findings to 3–4 items, max ~120 words of content total. No jargon.
+Prefer DATASET METADATA when present; do not require the raw file again.
 
-STATS:
-${JSON.stringify(stats).slice(0, 3500)}`;
+${statsBlock}`;
 
     let report: InsightReport = baseline;
     try {
@@ -71,7 +91,10 @@ ${JSON.stringify(stats).slice(0, 3500)}`;
       explanation: insightReportToExplanation(report),
       insights: report.findings.map((f) => `${f.title}: ${f.detail}`),
       insightReport: report,
-      _sourceTable: source,
+      _sourceTableSummary: {
+        columns: source.columns.slice(0, 24),
+        rowCount: source.rows.length,
+      },
     };
   },
 };
