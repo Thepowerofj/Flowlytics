@@ -109,14 +109,7 @@ export function repairAutoPipelineGraph(graph: FlowGraph): {
     }
 
     if (node.type === "ingest.csv_excel" && Array.isArray(node.config.piiFindings)) {
-      if (
-        (node.config.piiFindings as unknown[]).length > 0 &&
-        !node.config.piiAcknowledged
-      ) {
-        // Auto-pipeline already profiled this file — acknowledge so Run isn't blocked
-        node.config.piiAcknowledged = true;
-        repairs.push("Acknowledged personal-data findings on ingest");
-      }
+      // Never auto-ack PII here — Ask/Builder require explicit user acknowledgement.
     }
   }
 
@@ -208,4 +201,42 @@ export function repairAutoPipelineGraph(graph: FlowGraph): {
 /** Materialize helper: repair then return graph (repairs applied in place). */
 export function finalizeAutoPipelineGraph(graph: FlowGraph): FlowGraph {
   return repairAutoPipelineGraph(graph).graph;
+}
+
+/** Map remaining static check errors → heal flags for a safer replan. */
+export function healHintFromFlowIssues(issues: FlowIssue[]): {
+  disableForecast?: boolean;
+  disableAi?: boolean;
+  disablePresentation?: boolean;
+  reason: string;
+} | null {
+  const errors = issues.filter((i) => i.severity === "error");
+  if (!errors.length) return null;
+  const text = errors.map((i) => `${i.id} ${i.message}`).join(" ").toLowerCase();
+  if (/projection|forecast/.test(text)) {
+    return {
+      disableForecast: true,
+      reason: "Forecast config could not be repaired — rebuilding without forecast",
+    };
+  }
+  if (/chart-x|chart-y|chart-cfg/.test(text)) {
+    return {
+      disableForecast: true,
+      reason: "Chart columns could not be repaired — rebuilding a simpler path",
+    };
+  }
+  if (/ai-|structure-cols|unwired/.test(text)) {
+    return {
+      disableForecast: true,
+      disableAi: true,
+      disablePresentation: true,
+      reason: "Pipeline wiring/config errors — rebuilding a safer simplified path",
+    };
+  }
+  return {
+    disableForecast: true,
+    disableAi: true,
+    disablePresentation: true,
+    reason: "Unresolved pipeline errors — rebuilding with a safer plan",
+  };
 }

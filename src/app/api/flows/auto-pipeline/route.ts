@@ -3,8 +3,7 @@ import { z } from "zod";
 import type { TabularData } from "@/modules/blocks/domain/types";
 import {
   createFlowWithGraph,
-  materializeAutoPipelineGraph,
-  planAutoPipeline,
+  buildValidatedAutoPipeline,
   suggestFlowName,
 } from "@/modules/flows";
 import { requireActiveUser } from "@/shared/lib/session";
@@ -49,25 +48,26 @@ export async function POST(req: Request) {
       );
     }
 
-    const plan = planAutoPipeline({
+    const built = buildValidatedAutoPipeline({
       table,
       rawText: rawText || undefined,
       enableAi: body.enableAi,
       goal: body.goal,
+      seed: {
+        fileId: body.fileId,
+        fileName: body.fileName,
+        table,
+        sheetNames: body.sheetNames,
+        excelSheet: body.excelSheet,
+        excelRange: body.excelRange,
+        piiFindings: body.piiFindings,
+        datasetName: body.fileName
+          ? body.fileName.replace(/\.[^.]+$/, "")
+          : undefined,
+      },
     });
-
-    const graph = materializeAutoPipelineGraph(plan, {
-      fileId: body.fileId,
-      fileName: body.fileName,
-      table,
-      sheetNames: body.sheetNames,
-      excelSheet: body.excelSheet,
-      excelRange: body.excelRange,
-      piiFindings: body.piiFindings,
-      datasetName: body.fileName
-        ? body.fileName.replace(/\.[^.]+$/, "")
-        : undefined,
-    });
+    const plan = built.plan;
+    const graph = built.graph;
 
     const name =
       body.name?.trim() ||
@@ -85,6 +85,8 @@ export async function POST(req: Request) {
         rationale: plan.rationale,
         steps: plan.steps.map((s) => s.type),
       },
+      repairs: built.repairs,
+      remainingErrors: built.remainingErrors.map((e) => e.id),
     });
   } catch (e) {
     if (e instanceof z.ZodError) {

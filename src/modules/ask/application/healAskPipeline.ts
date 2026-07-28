@@ -5,8 +5,7 @@ import { blockLabel } from "@/modules/blocks/catalog";
 import {
   extractIngestSeedFromGraph,
   getFlowForUser,
-  materializeAutoPipelineGraph,
-  planAutoPipeline,
+  buildValidatedAutoPipeline,
   saveFlowGraph,
 } from "@/modules/flows";
 import { enqueueFlowRun } from "@/modules/jobs";
@@ -113,18 +112,6 @@ export async function healAskPipeline(input: {
     ? sampleTable(seed.table, PLAN_SAMPLE_ROWS)
     : undefined;
 
-  const plan = planAutoPipeline({
-    table: planTable,
-    enableAi: !hint.disableAi,
-    goal,
-    priorSteps: graph.nodes.map((n) => n.type),
-    heal: {
-      disableForecast: hint.disableForecast,
-      disableAi: hint.disableAi,
-      disablePresentation: hint.disablePresentation,
-    },
-  });
-
   const totalRows =
     (seed.table as TabularData & { _rowCount?: number } | undefined)?._rowCount ??
     seed.table?.rows.length ??
@@ -137,7 +124,20 @@ export async function healAskPipeline(input: {
         : seed.table,
   };
 
-  const nextGraph = materializeAutoPipelineGraph(plan, graphSeed) as FlowGraph;
+  const built = buildValidatedAutoPipeline({
+    table: planTable,
+    enableAi: !hint.disableAi,
+    goal,
+    priorSteps: graph.nodes.map((n) => n.type),
+    seed: graphSeed,
+    heal: {
+      disableForecast: hint.disableForecast,
+      disableAi: hint.disableAi,
+      disablePresentation: hint.disablePresentation,
+    },
+  });
+  const plan = built.plan;
+  const nextGraph = built.graph as FlowGraph;
 
   if (hint.acknowledgePii) {
     for (const node of nextGraph.nodes) {

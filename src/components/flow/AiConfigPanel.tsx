@@ -207,7 +207,10 @@ export function AiConfigPanel({ blockType, config, readOnly, onChange }: Props) 
                   Upstream table · {upstreamColumns.length} columns
                 </p>
                 <p className="mt-0.5 text-muted">{upstreamColumns.join(", ")}</p>
-                {upstreamPreview?.rows?.length ? (
+                {upstreamPreview &&
+                Array.isArray(upstreamPreview.rows) &&
+                upstreamPreview.rows.length &&
+                Array.isArray(upstreamPreview.columns) ? (
                   <p className="mt-1 text-[11px] text-muted">
                     Sample:{" "}
                     {upstreamPreview.rows

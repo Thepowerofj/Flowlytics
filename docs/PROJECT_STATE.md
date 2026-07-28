@@ -31,11 +31,11 @@ Auto-pipeline build finalization: repair column bindings and validation errors b
 - **Decision results:** richer Ask result metadata, forecast validation/caveat presentation slides, full-data CSV selection from analytical tables, and Builder output contract summaries
 - **Builder crash harden:** `tablePreview` requires array columns/rows; `InsightCard` / Stats / Aggregate / Structure / ActivityNode coerce compacted insights/metrics/rows; forecast canvas preview skips full method leaderboard (`compareMethods: []`); run path still auto-compares when compare list omitted
 - **Builder crash harden (paint path):** `previewOutputTable`/`sampleTable` reject non-array tables; `autoMapOnConnect` coerces metrics/groupBy/selectedColumns/dropColumns; FlowEditor catches bind failures; ActivityNode + config window error boundaries isolate bad activities
-- **Auto-pipeline finalize:** materialize always rebinds chart/forecast/aggregate/export columns from post-clean/post-aggregate tables; `repairAutoPipelineGraph` fixes remaining checkFlow errors (AI opt-in, PII ack, wiring, dead forecast) before save/view
+- **Auto-pipeline finalize:** materialize always rebinds chart/forecast/aggregate/export columns from post-clean/post-aggregate tables; `repairAutoPipelineGraph` fixes remaining checkFlow errors (AI opt-in, wiring, dead forecast) before save/view; `buildValidatedAutoPipeline` replans with heal hints while static errors remain; Ask/home/Builder builds all use the validated path; PII is never auto-acked at build time
 
 # In progress
 
-- Manual smoke: build pipeline from a spreadsheet and confirm Builder shows no wiring/config errors
+- Manual smoke: build from spreadsheet + open activities after run with compacted meta
 
 # Next
 

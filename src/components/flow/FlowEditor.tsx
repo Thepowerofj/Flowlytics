@@ -22,6 +22,7 @@ import "@xyflow/react/dist/style.css";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FlowGraph, TabularData } from "@/modules/blocks/domain/types";
 import {
+  buildValidatedAutoPipeline,
   materializeAutoPipelineGraph,
   planAutoPipeline,
 } from "@/modules/flows/domain/autoPipeline";
@@ -51,7 +52,7 @@ import { checkFlow, issueCounts } from "./flowChecks";
 import { flowGraphToRf, rfToFlowGraph } from "./graphConvert";
 import { portsFor } from "./ports";
 import type { ActivityNodeData, BlockSummary, RunState } from "./types";
-import type { ChartSpec } from "@/modules/analyse/domain/charts";
+import { normalizeChartSpec, type ChartSpec } from "@/modules/analyse/domain/charts";
 import { formatDateTime } from "@/shared/lib/formatUi";
 import { downloadTableCsv } from "./downloadCsv";
 import { RunHistory, type RunHistoryItem } from "./RunHistory";
@@ -914,16 +915,44 @@ function FlowEditorInner({ flowId, initialName, initialGraph }: Props) {
       };
     }
     if (node.data.blockType === "transform.clean_map") {
+      const live = node.data.config;
+      const columnMap =
+        live.columnMap &&
+        typeof live.columnMap === "object" &&
+        !Array.isArray(live.columnMap)
+          ? live.columnMap
+          : config.columnMap;
+      const dropColumns = Array.isArray(live.dropColumns)
+        ? live.dropColumns
+        : Array.isArray(config.dropColumns)
+          ? config.dropColumns
+          : [];
+      const transforms =
+        live.transforms &&
+        typeof live.transforms === "object" &&
+        !Array.isArray(live.transforms)
+          ? live.transforms
+          : config.transforms;
+      const table =
+        live.table &&
+        typeof live.table === "object" &&
+        Array.isArray((live.table as { columns?: unknown }).columns) &&
+        Array.isArray((live.table as { rows?: unknown }).rows)
+          ? live.table
+          : config.table;
+      const sourceColumns = Array.isArray(live._sourceColumns)
+        ? live._sourceColumns
+        : Array.isArray(config._sourceColumns)
+          ? config._sourceColumns
+          : [];
       config = {
         ...config,
-        columnMap: node.data.config.columnMap ?? config.columnMap,
-        dropColumns: node.data.config.dropColumns ?? config.dropColumns,
-        transforms: node.data.config.transforms ?? config.transforms,
-        _columnFormats: node.data.config._columnFormats ?? config._columnFormats,
-        // Prefer stored input table when present; else rebound upstream sample
-        table: node.data.config.table ?? config.table,
-        _sourceColumns:
-          node.data.config._sourceColumns ?? config._sourceColumns,
+        columnMap,
+        dropColumns,
+        transforms,
+        _columnFormats: live._columnFormats ?? config._columnFormats,
+        table,
+        _sourceColumns: sourceColumns,
       };
     }
     return {
@@ -935,14 +964,17 @@ function FlowEditorInner({ flowId, initialName, initialGraph }: Props) {
     };
   }, [configNodeId, nodes, edges, runStepOutputs]);
 
-  const flowIssues = useMemo(
-    () =>
-      checkFlow(
+  const flowIssues = useMemo(() => {
+    try {
+      return checkFlow(
         nodes.map((n) => ({ id: n.id, data: n.data })),
         edges.map((e) => ({ source: e.source, target: e.target })),
-      ),
-    [nodes, edges],
-  );
+      );
+    } catch (error) {
+      console.error("[Flowlytics] checkFlow failed:", error);
+      return [];
+    }
+  }, [nodes, edges]);
 
   const configAncestors = useMemo(() => {
     if (!configNodeId) return [];
@@ -1243,9 +1275,10 @@ function FlowEditorInner({ flowId, initialName, initialGraph }: Props) {
     (
       plan: ReturnType<typeof planAutoPipeline>,
       seed?: Parameters<typeof materializeAutoPipelineGraph>[1],
+      graphOverride?: FlowGraph,
     ) => {
-      // materializeAutoPipelineGraph already runs alignFlowGraph (content-aware sizes)
-      const graph = materializeAutoPipelineGraph(plan, seed);
+      const graph =
+        graphOverride ?? materializeAutoPipelineGraph(plan, seed);
       const sized = applyAlignedGraph(graph);
       setAutoPipelineBanner({
         title: plan.title,
@@ -1304,20 +1337,22 @@ function FlowEditorInner({ flowId, initialName, initialGraph }: Props) {
         throw new Error((upData.error as string) || "Upload failed");
       }
       const table = upData.table as TabularData;
-      const plan = planAutoPipeline({
+      const seed = {
+        fileId: upData.fileId as string,
+        fileName: upData.fileName as string,
+        table,
+        sheetNames: upData.sheetNames as string[] | undefined,
+        excelSheet: upData.sheet as string | undefined,
+        excelRange: (upData.range as string) ?? "",
+        piiFindings: (upData.piiFindings as unknown[]) ?? [],
+      };
+      const built = buildValidatedAutoPipeline({
         table,
         enableAi: true,
         goal: autoBuildGoal.trim() || undefined,
+        seed,
       });
-      applyAutoPipelineGraph(plan, {
-        fileId: upData.fileId,
-        fileName: upData.fileName,
-        table,
-        sheetNames: upData.sheetNames,
-        excelSheet: upData.sheet,
-        excelRange: upData.range ?? "",
-        piiFindings: upData.piiFindings ?? [],
-      });
+      applyAutoPipelineGraph(built.plan, seed, built.graph);
       if (upData.disclaimer) setDisclaimer(upData.disclaimer);
       setAutoBuildDialogOpen(false);
       setPendingAutoFile(null);
@@ -1493,9 +1528,10 @@ function FlowEditorInner({ flowId, initialName, initialGraph }: Props) {
     }[] = [];
     for (const [blockId, out] of Object.entries(byBlockId)) {
       const label = nodeIdLabels[blockId] ?? blockId;
-      if (out?.chart?.points?.length) {
+      const safeChart = normalizeChartSpec(out?.chart);
+      if (safeChart) {
         // Findings live in the written section below — avoid duplicating under the plot
-        const { insights: _i, ...chartOnly } = out.chart;
+        const { insights: _i, ...chartOnly } = safeChart;
         charts.push({ blockId, label, chart: chartOnly });
       }
       const report = normalizeInsightReport(out?.insightReport);
@@ -1519,14 +1555,16 @@ function FlowEditorInner({ flowId, initialName, initialGraph }: Props) {
     charts.sort((a, b) => {
       const score = (c: ChartSpec) =>
         (c.forecastSplit ? 10 : 0) +
-        (c.points?.some((p) => p.series === "Forecast") ? 10 : 0) +
+        (Array.isArray(c.points) && c.points.some((p) => p.series === "Forecast")
+          ? 10
+          : 0) +
         (/forecast/i.test(c.title) ? 5 : 0);
       return score(b.chart) - score(a.chart);
     });
     // Fallback to top-level last-wins when byBlockId missing (older runs)
     if (!charts.length) {
-      const legacy = run?.resultJson?.chart as ChartSpec | undefined;
-      if (legacy?.points?.length) {
+      const legacy = normalizeChartSpec(run?.resultJson?.chart);
+      if (legacy) {
         charts.push({ blockId: "", label: "Chart", chart: legacy });
       }
     }
@@ -1551,7 +1589,15 @@ function FlowEditorInner({ flowId, initialName, initialGraph }: Props) {
   ]);
   const downloadableSteps = useMemo(() => {
     return Object.entries(byBlockId)
-      .filter(([, out]) => out?.table?.columns?.length)
+      .filter(([, out]) => {
+        const table = out?.table;
+        return (
+          table &&
+          Array.isArray(table.columns) &&
+          table.columns.length > 0 &&
+          Array.isArray(table.rows)
+        );
+      })
       .map(([blockId, out]) => ({
         blockId,
         label: nodeIdLabels[blockId] ?? blockId,
@@ -2322,7 +2368,12 @@ function FlowEditorInner({ flowId, initialName, initialGraph }: Props) {
                 <table className="w-full text-left text-[10px]">
                   <thead className="sticky top-0 bg-bg text-muted">
                     <tr>
-                      {selectedDownload.table.columns.slice(0, 6).map((c) => (
+                      {(Array.isArray(selectedDownload.table.columns)
+                        ? selectedDownload.table.columns
+                        : []
+                      )
+                        .slice(0, 6)
+                        .map((c) => (
                         <th key={c} className="px-2 py-1.5 font-semibold">
                           {c}
                         </th>
@@ -2330,9 +2381,19 @@ function FlowEditorInner({ flowId, initialName, initialGraph }: Props) {
                     </tr>
                   </thead>
                   <tbody>
-                    {selectedDownload.table.rows.slice(0, 8).map((row, i) => (
+                    {(Array.isArray(selectedDownload.table.rows)
+                      ? selectedDownload.table.rows
+                      : []
+                    )
+                      .slice(0, 8)
+                      .map((row, i) => (
                       <tr key={i} className="border-t border-border">
-                        {selectedDownload.table.columns.slice(0, 6).map((c) => (
+                        {(Array.isArray(selectedDownload.table.columns)
+                          ? selectedDownload.table.columns
+                          : []
+                        )
+                          .slice(0, 6)
+                          .map((c) => (
                           <td key={c} className="max-w-[80px] truncate px-2 py-1 text-ink">
                             {row[c] == null ? "—" : String(row[c])}
                           </td>

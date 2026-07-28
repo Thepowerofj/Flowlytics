@@ -16,8 +16,7 @@ import {
   extractIngestSeedFromGraph,
   getFlowForUser,
   graphStepTypes,
-  materializeAutoPipelineGraph,
-  planAutoPipeline,
+  buildValidatedAutoPipeline,
   saveFlowGraph,
   suggestFlowName,
   type IngestSeed,
@@ -625,14 +624,6 @@ export async function askTurn(input: {
       ? sampleTable(planSource, PLAN_SAMPLE_ROWS)
       : undefined;
 
-    const plan = planAutoPipeline({
-      table: planTable,
-      rawText: planTable ? undefined : effectiveGoal,
-      enableAi: input.enableAi !== false,
-      goal: effectiveGoal,
-      priorSteps: isUpdate ? priorSteps : undefined,
-    });
-
     // Always persist a slim graph when fileId can reload the full file at run
     const graphSeed =
       opts.seed.fileId && opts.seed.table
@@ -647,7 +638,16 @@ export async function askTurn(input: {
             }
           : opts.seed;
 
-    const graph = materializeAutoPipelineGraph(plan, graphSeed) as FlowGraph;
+    const built = buildValidatedAutoPipeline({
+      table: planTable,
+      rawText: planTable ? undefined : effectiveGoal,
+      enableAi: input.enableAi !== false,
+      goal: effectiveGoal,
+      priorSteps: isUpdate ? priorSteps : undefined,
+      seed: graphSeed,
+    });
+    const plan = built.plan;
+    const graph = built.graph as FlowGraph;
     const stepTypes = plan.steps.map((s) => s.type);
     const pipelineContext = stepTypes.map((t) => blockLabel(t)).join(" → ");
 

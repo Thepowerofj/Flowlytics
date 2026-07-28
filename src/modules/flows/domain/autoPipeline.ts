@@ -15,7 +15,12 @@ import { blockLabel, getBlockMeta } from "@/modules/blocks/catalog";
 import { applyTableTransforms } from "@/modules/ingest/domain/columnTransform";
 import { suggestCleanMapConfig } from "@/modules/ingest/domain/suggestCleanMap";
 import { alignFlowGraph } from "./flowLayout";
-import { finalizeAutoPipelineGraph } from "./pipelineRepair";
+import {
+  finalizeAutoPipelineGraph,
+  healHintFromFlowIssues,
+  repairAutoPipelineGraph,
+} from "./pipelineRepair";
+import type { FlowIssue } from "./flowChecks";
 
 export type PipelineArchetype =
   | "timeseries"
@@ -654,6 +659,77 @@ export function materializeAutoPipelineGraph(
   });
 
   return finalizeAutoPipelineGraph(alignFlowGraph({ nodes, edges }));
+}
+
+/**
+ * Plan → materialize → repair, then replan with heal hints while static errors remain.
+ * Call this (instead of plan+materialize alone) before saving/showing a pipeline.
+ */
+export function buildValidatedAutoPipeline(input: {
+  table?: TabularData | null;
+  rawText?: string;
+  enableAi?: boolean;
+  goal?: string;
+  priorSteps?: string[];
+  seed?: IngestSeed;
+  /** Seed heal flags before the first plan (runtime Ask heal). */
+  heal?: PipelinePlanHeal;
+  /** Max heal replans after the first materialize (default 2). */
+  maxHealAttempts?: number;
+}): {
+  plan: AutoPipelinePlan;
+  graph: FlowGraph;
+  repairs: string[];
+  remainingErrors: FlowIssue[];
+} {
+  const maxAttempts = Math.max(0, input.maxHealAttempts ?? 2);
+  let heal: PipelinePlanHeal | undefined = input.heal;
+  let plan = planAutoPipeline({
+    table: input.table,
+    rawText: input.rawText,
+    enableAi: input.enableAi,
+    goal: input.goal,
+    priorSteps: input.priorSteps,
+    heal,
+  });
+  let graph = materializeAutoPipelineGraph(plan, input.seed);
+  let repaired = repairAutoPipelineGraph(graph);
+  const allRepairs = [...repaired.repairs];
+
+  for (
+    let attempt = 0;
+    attempt < maxAttempts && repaired.remainingErrors.length > 0;
+    attempt++
+  ) {
+    const hint = healHintFromFlowIssues(repaired.remainingErrors);
+    if (!hint) break;
+    heal = {
+      disableForecast: Boolean(heal?.disableForecast || hint.disableForecast),
+      disableAi: Boolean(heal?.disableAi || hint.disableAi),
+      disablePresentation: Boolean(
+        heal?.disablePresentation || hint.disablePresentation,
+      ),
+    };
+    allRepairs.push(hint.reason);
+    plan = planAutoPipeline({
+      table: input.table,
+      rawText: input.rawText,
+      enableAi: input.enableAi,
+      goal: input.goal,
+      priorSteps: input.priorSteps,
+      heal,
+    });
+    graph = materializeAutoPipelineGraph(plan, input.seed);
+    repaired = repairAutoPipelineGraph(graph);
+    allRepairs.push(...repaired.repairs);
+  }
+
+  return {
+    plan,
+    graph: repaired.graph,
+    repairs: allRepairs,
+    remainingErrors: repaired.remainingErrors,
+  };
 }
 
 export function suggestFlowName(plan: AutoPipelinePlan, fileName?: string): string {
