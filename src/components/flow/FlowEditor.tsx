@@ -1674,8 +1674,8 @@ function FlowEditorInner({ flowId, initialName, initialGraph }: Props) {
   }
 
   async function downloadPresentation(format: "pdf" | "pptx") {
-    if (!run?.id || run.status !== "SUCCEEDED") {
-      setStatus("Run the flow successfully before exporting a presentation");
+    if (!run?.id || (run.status !== "SUCCEEDED" && run.status !== "FAILED")) {
+      setStatus("Wait for the run to finish before exporting a presentation");
       return;
     }
     try {
@@ -1689,11 +1689,15 @@ function FlowEditorInner({ flowId, initialName, initialGraph }: Props) {
         throw new Error(json.error ?? "Export failed");
       }
       const blob = await res.blob();
+      if (!blob.size) throw new Error("Export returned an empty file");
       const url = URL.createObjectURL(blob);
       const a = document.createElement("a");
       a.href = url;
       a.download = `flowlytics-${run.id.slice(-6)}.${format}`;
+      a.rel = "noopener";
+      document.body.appendChild(a);
       a.click();
+      a.remove();
       URL.revokeObjectURL(url);
       setStatus(`Downloaded ${format.toUpperCase()}`);
     } catch (e) {

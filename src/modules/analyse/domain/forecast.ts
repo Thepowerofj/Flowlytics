@@ -7,6 +7,7 @@ import {
   orderHistoryPoints,
   type PeriodOrder,
 } from "./periodOrder";
+import { assessPartialLastPeriod } from "./partialPeriod";
 
 export type ForecastMethod =
   | "trend"
@@ -135,6 +136,9 @@ export type ForecastDiagnostics = {
   intermittentDemand: boolean;
   eligibleMethods: ForecastMethod[];
   warnings: string[];
+  /** True when the newest period looked incomplete and was excluded from the fit. */
+  excludedPartialLastPeriod?: boolean;
+  partialPeriodLabel?: string;
 };
 
 export type ForecastScenario = {
@@ -319,6 +323,8 @@ function forecastDiagnostics(input: {
   labels: string[];
   values: number[];
   seasonLength?: number;
+  partial?: ReturnType<typeof assessPartialLastPeriod>;
+  excludedPartial?: boolean;
 }): ForecastDiagnostics {
   const values = input.values;
   const warnings: string[] = [];
@@ -343,6 +349,11 @@ function forecastDiagnostics(input: {
     warnings.push("Intermittent demand detected; simple methods may understate spikes.");
   }
   if (hasNegatives) warnings.push("Negative values detected; growth models may be unsuitable.");
+  if (input.excludedPartial && input.partial?.reason) {
+    warnings.push(input.partial.reason);
+  } else if (input.partial?.isPartial && input.partial.reason) {
+    warnings.push(input.partial.reason);
+  }
 
   return {
     readiness:
@@ -361,6 +372,10 @@ function forecastDiagnostics(input: {
       seasonLength: input.seasonLength,
     }),
     warnings,
+    excludedPartialLastPeriod: Boolean(input.excludedPartial),
+    partialPeriodLabel: input.excludedPartial
+      ? input.labels[input.labels.length - 1]
+      : undefined,
   };
 }
 
@@ -612,6 +627,8 @@ export function buildForecast(
     periodOrder?: PeriodOrder | string;
     compareMethods?: ForecastMethod[] | string[] | string;
     outputShape?: "long" | "wide";
+    /** Default true — drop incomplete final period from the model fit. */
+    excludePartialLastPeriod?: boolean;
   },
 ): ForecastResult {
   const column = config.column;
@@ -633,13 +650,27 @@ export function buildForecast(
     rawPoints,
     config.periodOrder ?? "auto",
   );
-  const actual = ordered.map((p) => p.value);
-  const periodLabels = ordered.map((p) => p.label);
+  let fitPoints = ordered;
+  let excludedPartial = false;
+  let partialMeta = assessPartialLastPeriod(
+    ordered.map((p) => p.label),
+    ordered.map((p) => p.value),
+  );
+  const excludePartial = config.excludePartialLastPeriod !== false;
+  if (excludePartial && partialMeta.isPartial && ordered.length >= 3) {
+    fitPoints = ordered.slice(0, -1);
+    excludedPartial = true;
+  }
+
+  const actual = fitPoints.map((p) => p.value);
+  const periodLabels = fitPoints.map((p) => p.label);
   const diagnostics = forecastDiagnostics({
     rawPointCount: extractedPoints.length,
     labels: periodLabels,
     values: actual,
     seasonLength: config.seasonLength,
+    partial: partialMeta,
+    excludedPartial,
   });
 
   const futureLabels = resolveFutureLabels(periodLabels, config);
@@ -687,7 +718,9 @@ export function buildForecast(
       : recommended;
   const selectedModelReason =
     selectedMethod === method
-      ? "Using the configured eligible method."
+      ? excludedPartial
+        ? "Using the configured method on complete periods only (partial last period excluded)."
+        : "Using the configured eligible method."
       : `Switched from ${method} to ${selectedMethod} because the configured method was not eligible for this history.`;
   const selectedOptions = { ...options, method: selectedMethod };
   const forecast = forecastValues(actual, selectedOptions);
@@ -708,6 +741,9 @@ export function buildForecast(
       high: band?.high[i] ?? null,
     })),
   ];
+
+  // Partial last period is excluded from the fit and chart history so an open
+  // month cannot drag the outlook down; diagnostics explain the exclusion.
 
   const longColumns = band
     ? ["period", "value", "series", "low", "high"]

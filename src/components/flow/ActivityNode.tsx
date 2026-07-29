@@ -17,6 +17,10 @@ import {
   buildForecast,
   type ForecastMethod,
 } from "@/modules/analyse/domain/forecast";
+import {
+  buildGroupedForecast,
+  isGroupedForecastResult,
+} from "@/modules/analyse/domain/groupedForecast";
 import { buildForecastInsights } from "@/modules/analyse/domain/insights";
 import { computeStats, type ColumnStats } from "@/modules/analyse/domain/stats";
 import {
@@ -296,9 +300,10 @@ function ActivityNodeInner({
       } else {
         const col = measureCol;
         if (col) {
-          const result = buildForecast(table, {
+          const built = buildGroupedForecast(table, {
             column: col,
             periodColumn: (data.config.periodColumn as string) || undefined,
+            groupColumn: (data.config.groupColumn as string) || undefined,
             periods: Number(data.config.periods ?? 3),
             futureMode: (data.config.futureMode as string) || "count",
             untilDate: (data.config.untilDate as string) || "",
@@ -308,10 +313,15 @@ function ActivityNodeInner({
             seasonLength: Number(data.config.seasonLength ?? 12),
             alpha: Number(data.config.alpha ?? 0.3),
             confidenceBand: data.config.confidenceBand !== false,
+            excludePartialLastPeriod:
+              data.config.excludePartialLastPeriod !== false,
             // Canvas preview: skip full leaderboard — keep paint fast/safe
             compareMethods: [],
           });
-          if (result.actual.length >= 2) {
+          const result = isGroupedForecastResult(built)
+            ? built.groups[0]?.result
+            : built;
+          if (result && result.actual.length >= 2) {
             const { insights, kpis } = buildForecastInsights(
               result,
               forecastFormat,
@@ -325,13 +335,24 @@ function ActivityNodeInner({
               forecastSplit: true,
               valueFormat: forecastFormat,
               insights: insights.map((i) => `${i.title}: ${i.detail}`),
-              points: result.points.map((p) => ({
-                x: p.period,
-                y: p.value,
-                series: p.series,
-                low: p.low,
-                high: p.high,
-              })),
+              points: (isGroupedForecastResult(built)
+                ? built.points.map((p) => ({
+                    x: p.period,
+                    y: p.value,
+                    series: p.series.includes("Forecast")
+                      ? ("Forecast" as const)
+                      : ("Actual" as const),
+                    low: p.low,
+                    high: p.high,
+                  }))
+                : result.points.map((p) => ({
+                    x: p.period,
+                    y: p.value,
+                    series: p.series,
+                    low: p.low,
+                    high: p.high,
+                  }))
+              ).slice(0, 240),
             };
           }
         }

@@ -40,6 +40,16 @@ const SKIP_RE =
 
 const MAX_QUESTIONS = 4;
 
+function seedName(table: TabularData): string {
+  // Prefer obvious identity columns for copy; otherwise empty
+  const nameCol = table.columns.find((c) =>
+    /file|name|dataset|title/i.test(c),
+  );
+  if (!nameCol) return "";
+  const first = table.rows[0]?.[nameCol];
+  return first != null ? String(first).slice(0, 40) : "";
+}
+
 export function wantsSkipClarify(message: string): boolean {
   const t = message.trim();
   if (SKIP_RE.test(t)) return true;
@@ -269,8 +279,21 @@ function buildQuestions(
     });
   }
 
-  // 3) Cut / comparison dimension
+  // 3) Cut / comparison dimension — grounded in real column values
   if (!slots.cut) {
+    const topValues = (col: string) => {
+      const counts = new Map<string, number>();
+      for (const row of table.rows.slice(0, 2000)) {
+        const v = String(row[col] ?? "").trim();
+        if (!v) continue;
+        counts.set(v, (counts.get(v) ?? 0) + 1);
+      }
+      return [...counts.entries()]
+        .sort((a, b) => b[1] - a[1])
+        .slice(0, 3)
+        .map(([v]) => v);
+    };
+
     if (intent === "compare") {
       const compareOpts =
         cats.length >= 2
@@ -278,18 +301,23 @@ function buildQuestions(
           : category
             ? [`Compare by ${category}`, "Overall only"]
             : ["By region / segment", "Overall totals only"];
-      if (cats.length >= 2) {
-        compareOpts.push(`Compare top ${cats[0]} vs others`);
+      if (category) {
+        const vals = topValues(category);
+        if (vals.length >= 2) {
+          compareOpts.unshift(`${vals[0]} vs ${vals[1]}`);
+        }
       }
       push({
         id: "cut",
-        prompt: `${lead}, what should we compare?`,
+        prompt: `${lead}, what should we compare in **${
+          seedName(table) || "this file"
+        }**?`,
         suggestions: compareOpts.slice(0, 4),
       });
     } else if (intent === "rank" && category) {
       push({
         id: "cut",
-        prompt: `${lead}, rank which entities?`,
+        prompt: `${lead}, rank which **${category}** values?`,
         suggestions: [
           `Top ${category}`,
           `Bottom ${category}`,
@@ -300,66 +328,85 @@ function buildQuestions(
     } else if (category || cats.length) {
       const dim = category || cats[0]!;
       const more = cats.filter((c) => c !== dim).slice(0, 2);
+      const sampleVals = topValues(dim);
+      const sampleHint = sampleVals.length
+        ? ` (e.g. ${sampleVals.slice(0, 2).join(", ")})`
+        : "";
       push({
         id: "cut",
         prompt:
-          intent === "breakdown" || intent === "diagnose"
-            ? `${lead}, which breakdown should we emphasise?`
-            : `Any breakdown you care about (e.g. **${dim}**)?`,
+          intent === "forecast" || intent === "trend"
+            ? `Should we forecast **${measure || "the measure"}** overall, or separately for each **${dim}**${sampleHint}?`
+            : intent === "breakdown" || intent === "diagnose"
+              ? `${lead}, which breakdown should we emphasise?`
+              : `Any breakdown you care about (e.g. **${dim}**${sampleHint})?`,
         suggestions: [
-          `By ${dim}`,
+          intent === "forecast" || intent === "trend"
+            ? `Forecast each ${dim}`
+            : `By ${dim}`,
           ...more.map((c) => `By ${c}`),
           "Overall totals only",
-          "Top performers only",
+          sampleVals[0] ? `Focus on ${sampleVals[0]}` : "Top performers only",
         ].slice(0, 4),
       });
     }
   }
 
-  // 4) Decision / success outcome — fills vague goals and improves AI narrative
+  // 4) Decision / success outcome — tie to measure + file facts
   if (!slots.decision && out.length < MAX_QUESTIONS) {
+    const m = measure || "the key metric";
     const decisionSuggestions = (() => {
       switch (intent) {
         case "forecast":
           return [
-            "Set next period targets",
-            "Spot risk of missing plan",
-            "Plan inventory / capacity",
-            "Board-ready outlook",
+            `Set targets for ${m}`,
+            `Flag risk if ${m} keeps falling`,
+            profile.categoryCol
+              ? `Prioritise ${profile.categoryCol}s that need attention`
+              : "Plan capacity from the outlook",
+            "Board-ready outlook with caveats",
           ];
         case "compare":
           return [
-            "Pick a winner to double down on",
-            "Find underperformers to fix",
+            profile.categoryCol
+              ? `Double down on the stronger ${profile.categoryCol}`
+              : "Pick a winner to double down on",
+            `Find where ${m} underperforms`,
             "Explain variance to stakeholders",
-            "Reallocate budget",
+            "Reallocate effort / budget",
           ];
         case "rank":
           return [
-            "Focus effort on top performers",
-            "Fix the bottom performers",
+            profile.categoryCol
+              ? `Focus on top ${profile.categoryCol}s`
+              : "Focus effort on top performers",
+            `Fix where ${m} is weakest`,
             "Shortlist for investment",
             "Share a leaderboard",
           ];
         case "diagnose":
           return [
-            "Find root cause of the drop",
-            "Confirm if the spike is real",
+            `Find what drove the change in ${m}`,
+            "Confirm if the latest period is incomplete",
             "Prioritise what to fix first",
             "Brief the team with actions",
           ];
         case "breakdown":
           return [
-            "See which segments drive results",
+            profile.categoryCol
+              ? `See which ${profile.categoryCol} drives ${m}`
+              : "See which segments drive results",
             "Find hidden pockets of growth",
             "Simplify the story for leadership",
             "Decide where to focus next",
           ];
         default:
           return [
-            "Executive summary + next actions",
+            `Executive summary of ${m}`,
             "Risks & opportunities",
-            "Forecast outlook",
+            profile.dateCols.length
+              ? "Forecast outlook (exclude incomplete months)"
+              : "What changed recently",
             "What to do this month",
           ];
       }
@@ -369,7 +416,9 @@ function buildQuestions(
       id: "decision",
       prompt:
         intent === "general"
-          ? `${lead}, what decision should this help you make?`
+          ? `With **${profile.rowCount.toLocaleString()}** rows${
+              measure ? ` and **${measure}**` : ""
+            }, what decision should this help you make?`
           : `${lead}, what will you do with the answer?`,
       suggestions: decisionSuggestions,
     });

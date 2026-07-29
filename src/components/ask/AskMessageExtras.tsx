@@ -114,11 +114,15 @@ async function downloadPresentation(runId: string, format: "pdf" | "pptx") {
     throw new Error(json.error ?? "Export failed");
   }
   const blob = await res.blob();
+  if (!blob.size) throw new Error("Export returned an empty file");
   const url = URL.createObjectURL(blob);
   const a = document.createElement("a");
   a.href = url;
   a.download = `flowlytics-${runId.slice(-6)}.${format}`;
+  a.rel = "noopener";
+  document.body.appendChild(a);
   a.click();
+  a.remove();
   URL.revokeObjectURL(url);
 }
 

@@ -4,13 +4,11 @@ Last updated: 2026-07-29
 
 # Current goal
 
-Trusted Analytics Core implemented locally: Guided Ask is the primary spreadsheet workflow, execution correctness gates are repaired, and analytics, forecasting, reports, exports, and Builder diagnostics have been upgraded.
-
-Public repo: https://github.com/Thepowerofj/Flowlytics
+Improve group forecasting, incomplete-period handling, PDF exports, Ask clarify relevance, and UI type consistency.
 
 # Current slice
 
-Ask/auto-pipeline reliability for Excel extracts with serial dates (e.g. missed-opportunities monthly files): stratified graph seeds, date casting, total-measure preference, and Builder crash guards.
+Group × period forecasts, partial-month exclusion, richer PDF charts, data-grounded Ask questions, and accessible type scale.
 
 # Completed
 

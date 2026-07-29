@@ -14,8 +14,15 @@ export async function exportRunPresentation(
     include: { flow: { select: { name: true } } },
   });
   if (!run) throw new AppError("Run not found", "NOT_FOUND", 404);
-  if (run.status !== "SUCCEEDED") {
-    throw new AppError("Run is not complete", "RUN_NOT_READY", 400);
+  if (run.status !== "SUCCEEDED" && run.status !== "FAILED") {
+    throw new AppError("Run is not complete yet — wait for it to finish.", "RUN_NOT_READY", 400);
+  }
+  if (!run.resultJson) {
+    throw new AppError(
+      "This run has no results to export yet.",
+      "RUN_EMPTY",
+      400,
+    );
   }
 
   const model = buildPresentationModel(run.resultJson, {

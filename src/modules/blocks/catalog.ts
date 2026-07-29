@@ -218,6 +218,7 @@ export const projectionMeta: BlockMeta = {
   defaultConfig: {
     column: "",
     periodColumn: "",
+    groupColumn: "",
     periods: 3,
     futureMode: "count",
     untilDate: "",
@@ -230,6 +231,7 @@ export const projectionMeta: BlockMeta = {
     periodOrder: "auto",
     compareMethods: [],
     outputShape: "long",
+    excludePartialLastPeriod: true,
     goalPrompt: "",
   },
 };

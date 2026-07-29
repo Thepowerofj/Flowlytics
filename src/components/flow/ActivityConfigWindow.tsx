@@ -14,6 +14,10 @@ import {
   type FutureHorizonMode,
 } from "@/modules/analyse/domain/forecast";
 import {
+  buildGroupedForecast,
+  isGroupedForecastResult,
+} from "@/modules/analyse/domain/groupedForecast";
+import {
   PERIOD_ORDER_OPTIONS,
   type PeriodOrder,
 } from "@/modules/analyse/domain/periodOrder";
@@ -446,6 +450,7 @@ function ActivityConfigWindowInner({
               table={table}
               column={(data.config.column as string) ?? ""}
               periodColumn={(data.config.periodColumn as string) ?? ""}
+              groupColumn={(data.config.groupColumn as string) ?? ""}
               periods={Number(data.config.periods ?? 3)}
               futureMode={
                 (data.config.futureMode as FutureHorizonMode) || "count"
@@ -457,6 +462,9 @@ function ActivityConfigWindowInner({
               seasonLength={Number(data.config.seasonLength ?? 12)}
               alpha={Number(data.config.alpha ?? 0.3)}
               confidenceBand={data.config.confidenceBand !== false}
+              excludePartialLastPeriod={
+                data.config.excludePartialLastPeriod !== false
+              }
               periodOrder={(data.config.periodOrder as string) || "auto"}
               compareMethods={
                 Array.isArray(data.config.compareMethods)
@@ -1140,6 +1148,7 @@ function ProjectionConfig({
   table,
   column,
   periodColumn,
+  groupColumn,
   periods,
   futureMode,
   untilDate,
@@ -1149,6 +1158,7 @@ function ProjectionConfig({
   seasonLength,
   alpha,
   confidenceBand,
+  excludePartialLastPeriod,
   periodOrder,
   compareMethods,
   outputShape,
@@ -1160,6 +1170,7 @@ function ProjectionConfig({
   table: ReturnType<typeof tablePreview>;
   column: string;
   periodColumn: string;
+  groupColumn: string;
   periods: number;
   futureMode: FutureHorizonMode;
   untilDate: string;
@@ -1169,6 +1180,7 @@ function ProjectionConfig({
   seasonLength: number;
   alpha: number;
   confidenceBand: boolean;
+  excludePartialLastPeriod: boolean;
   periodOrder: string;
   compareMethods: string[];
   outputShape: "long" | "wide";
@@ -1208,9 +1220,10 @@ function ProjectionConfig({
 
   if (table && safeColumn) {
     try {
-      preview = buildForecast(table, {
+      const built = buildGroupedForecast(table, {
         column: safeColumn,
         periodColumn: safePeriod || undefined,
+        groupColumn: groupColumn || undefined,
         periods,
         futureMode: safeFutureMode,
         untilDate,
@@ -1220,13 +1233,20 @@ function ProjectionConfig({
         seasonLength,
         alpha,
         confidenceBand,
+        excludePartialLastPeriod,
         periodOrder: (periodOrder as PeriodOrder) || "auto",
-        compareMethods: compareMethods.length ? compareMethods : undefined,
+        compareMethods: [],
         outputShape,
       });
-      if (preview.actual.length < 2) {
+      preview = isGroupedForecastResult(built)
+        ? built.groups[0]?.result ?? null
+        : built;
+      if (isGroupedForecastResult(built) && built.groups.length > 1) {
+        previewHint = `Showing preview for “${built.groups[0]?.key}” · ${built.groups.length} groups total (full run forecasts each).`;
+      }
+      if (!preview || preview.actual.length < 2) {
         previewHint =
-          preview.actual.length === 0
+          !preview || preview.actual.length === 0
             ? `“${safeColumn}” has no readable numbers. Dates belong in period labels, not the value to forecast.`
             : `Need at least 2 numeric history points in “${safeColumn}” (found ${preview.actual.length}).`;
         preview = null;
@@ -1345,6 +1365,45 @@ function ProjectionConfig({
               </option>
             ))}
           </select>
+        </label>
+
+        <label className="block text-sm sm:col-span-2">
+          <span className="font-medium text-ink">Forecast each group (optional)</span>
+          <select
+            className="input mt-1 text-sm"
+            value={groupColumn}
+            onChange={(e) => onChange({ groupColumn: e.target.value })}
+          >
+            <option value="">Overall series only</option>
+            {columns
+              .filter((c) => c !== safeColumn && c !== safePeriod)
+              .map((c) => (
+                <option key={c} value={c}>
+                  {c}
+                </option>
+              ))}
+          </select>
+          <span className="mt-1 block text-[11px] text-muted">
+            e.g. scenario / region — runs a separate outlook per value (up to 12 groups).
+          </span>
+        </label>
+
+        <label className="flex items-start gap-2 text-sm sm:col-span-2">
+          <input
+            type="checkbox"
+            className="mt-1"
+            checked={excludePartialLastPeriod}
+            onChange={(e) =>
+              onChange({ excludePartialLastPeriod: e.target.checked })
+            }
+          />
+          <span>
+            <span className="font-medium text-ink">Ignore incomplete last period</span>
+            <span className="mt-0.5 block text-[11px] text-muted">
+              Recommended when the newest month is still open or only partially extracted —
+              prevents a false decline in the outlook.
+            </span>
+          </span>
         </label>
 
         <label className="block text-sm sm:col-span-2">

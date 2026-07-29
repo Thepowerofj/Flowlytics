@@ -25,6 +25,12 @@ export type PresentationSlide =
       items: { label: string; value: string; hint?: string }[];
     }
   | {
+      kind: "chart";
+      title: string;
+      caption?: string;
+      points: { x: string; y: number; series?: string }[];
+    }
+  | {
       kind: "closing";
       title: string;
       body: string;
@@ -83,6 +89,13 @@ export function buildPresentationModel(
       }
     | null = null;
   let scenarioBullets: string[] = [];
+  let chartSlide:
+    | {
+        title: string;
+        caption?: string;
+        points: { x: string; y: number; series?: string }[];
+      }
+    | null = null;
   let headline = "";
   let summary = "";
 
@@ -176,6 +189,31 @@ export function buildPresentationModel(
       });
     }
 
+    const chart = out.chart as
+      | {
+          title?: string;
+          points?: { x?: string; y?: number; series?: string }[];
+        }
+      | undefined;
+    if (
+      !chartSlide &&
+      Array.isArray(chart?.points) &&
+      chart.points.length >= 2
+    ) {
+      chartSlide = {
+        title: chart.title || "Forecast outlook",
+        caption: "History and projected values from the Forecast activity",
+        points: chart.points
+          .filter((p) => p && typeof p.y === "number")
+          .slice(0, 48)
+          .map((p) => ({
+            x: String(p.x ?? ""),
+            y: Number(p.y) || 0,
+            series: p.series,
+          })),
+      };
+    }
+
     const contract = out.contract as
       | { warnings?: string[]; rowCount?: number; grain?: string; primaryMeasure?: string }
       | undefined;
@@ -211,6 +249,15 @@ export function buildPresentationModel(
       kind: "kpi",
       title: "Numbers that matter",
       items: dedupeKpis(kpis).slice(0, 6),
+    });
+  }
+
+  if (chartSlide) {
+    slides.push({
+      kind: "chart",
+      title: chartSlide.title,
+      caption: chartSlide.caption,
+      points: chartSlide.points,
     });
   }
 

@@ -65,10 +65,36 @@ export function profileTable(table: TabularData, goal?: string): DataProfile {
   const categoricalCols = table.columns.filter(
     (c) => !numericCols.includes(c) && !dateCols.includes(c),
   );
+  // Low-cardinality numerics that behave like coded segments (scenario=60/90)
+  const codedDims = numericCols.filter((c) => {
+    if (dateCols.includes(c)) return false;
+    if (MEASURE_LIKE_RE.test(c)) return false;
+    const vals = new Set(
+      table.rows
+        .map((r) => r[c])
+        .filter((v) => v != null && v !== "")
+        .map((v) => String(v)),
+    );
+    return vals.size >= 2 && vals.size <= 24 && vals.size < table.rows.length * 0.5;
+  });
+  const cutPool = [...categoricalCols, ...codedDims].filter(
+    (c) => !/^(id|_id)$/i.test(c) && !/Id$/.test(c),
+  );
   const measureCol = pickForecastMeasure(table, goal) || "";
   const periodCol = guessPeriodColumn(table, measureCol) || dateCols[0] || "";
+  const g = (goal ?? "").toLowerCase();
+  const mentionedCut = cutPool.find((c) => g.includes(c.toLowerCase()));
+  const preferredCut = cutPool.find((c) =>
+    /scenario|region|store|channel|segment|brand|product|category|member/i.test(
+      c,
+    ),
+  );
   const categoryCol =
-    categoricalCols.find((c) => !/id$/i.test(c)) || categoricalCols[0] || "";
+    mentionedCut ||
+    preferredCut ||
+    cutPool.find((c) => !/id$/i.test(c)) ||
+    cutPool[0] ||
+    "";
   const quality = profileDataset(table, {
     periodColumn: periodCol,
     measureColumn: measureCol,
@@ -79,13 +105,16 @@ export function profileTable(table: TabularData, goal?: string): DataProfile {
     columnCount: table.columns.length,
     numericCols,
     dateCols,
-    categoricalCols,
+    categoricalCols: cutPool.length ? cutPool : categoricalCols,
     measureCol,
     periodCol,
     categoryCol,
     quality,
   };
 }
+
+const MEASURE_LIKE_RE =
+  /(sales|revenue|amount|total|qty|quantity|units|volume|value|price|cost|profit|spend|missed|scripts?)/i;
 
 function chartConfig(table: TabularData): Record<string, unknown> {
   const suggestions = suggestCharts(table);
@@ -110,15 +139,18 @@ function parseHorizonPeriods(goal: string): number | null {
 function forecastConfig(
   profile: DataProfile,
   goal?: string,
+  opts?: { groupColumn?: string },
 ): Record<string, unknown> {
   const periods = parseHorizonPeriods(goal ?? "") ?? 3;
   return {
     column: profile.measureCol,
     periodColumn: profile.periodCol,
+    groupColumn: opts?.groupColumn || "",
     periods,
     method: "trend",
     confidenceBand: true,
     futureMode: "count",
+    excludePartialLastPeriod: true,
     goalPrompt: (goal ?? "").trim().slice(0, 400),
   };
 }
@@ -154,6 +186,52 @@ function periodAggregateConfig(profile: DataProfile): Record<string, unknown> {
     _analyticalGrain: "period",
     _primaryMeasure: profile.measureCol || "Row count",
   };
+}
+
+/** Aggregate by category + period for per-group forecasts (e.g. scenario × month). */
+function periodGroupAggregateConfig(
+  profile: DataProfile,
+): Record<string, unknown> {
+  if (!profile.periodCol || !profile.categoryCol) {
+    return periodAggregateConfig(profile);
+  }
+  return {
+    groupBy: [profile.categoryCol, profile.periodCol],
+    metrics: profile.measureCol
+      ? [
+          {
+            op: "sum",
+            column: profile.measureCol,
+            as: profile.measureCol,
+          },
+        ]
+      : [{ op: "count", as: "Row count" }],
+    datasetName: `By ${profile.categoryCol} · ${profile.periodCol}`,
+    _analyticalGrain: "group_period",
+    _primaryMeasure: profile.measureCol || "Row count",
+  };
+}
+
+function wantsGroupedForecast(goal: string, profile: DataProfile): boolean {
+  if (!profile.categoryCol || !profile.periodCol || !profile.measureCol) {
+    return false;
+  }
+  const g = goal.toLowerCase();
+  // Explicit cut language or the category column named in the goal
+  if (
+    /\b(by|per|each|every|across|split|breakdown)\b/i.test(g) ||
+    new RegExp(
+      `\\b${profile.categoryCol.replace(/[.*+?^${}()|[\]\\]/g, "\\$&")}\\b`,
+      "i",
+    ).test(goal)
+  ) {
+    return true;
+  }
+  // Named business cuts in the goal
+  if (/scenario|region|channel|segment|brand|product\b/i.test(g)) {
+    return true;
+  }
+  return false;
 }
 
 /**
@@ -273,11 +351,15 @@ export function planAutoPipeline(input: {
       "Auto-corrected path: explore with stats + chart (forecast skipped after a prior error).";
   }
 
+  const groupForecast = wantsGroupedForecast(goalRaw, profile);
+
   if (wantForecast && profile.measureCol) {
     archetype = "timeseries";
-    rationale = `Forecasting **${profile.measureCol}** over **${profile.periodCol || "periods"}** (not ID/key columns). Pipeline cleans${
-      profile.quality.rowGrain === "transaction" ? ", aggregates duplicate periods," : ""
-    } projects the orange forecast series, then writes insights.`;
+    rationale = groupForecast
+      ? `Forecasting **${profile.measureCol}** by **${profile.categoryCol}** over **${profile.periodCol || "periods"}**. Pipeline aggregates each group’s history, projects an outlook per group (excluding incomplete final periods), then writes insights.`
+      : `Forecasting **${profile.measureCol}** over **${profile.periodCol || "periods"}** (not ID/key columns). Pipeline cleans${
+          profile.quality.rowGrain === "transaction" ? ", aggregates duplicate periods," : ""
+        } projects the orange forecast series (incomplete final periods excluded), then writes insights.`;
   } else if (wantForecast && !profile.measureCol) {
     archetype = "numeric";
     rationale =
@@ -305,8 +387,10 @@ export function planAutoPipeline(input: {
   if (archetype === "timeseries" && profile.quality.rowGrain === "transaction") {
     steps.push({
       type: "transform.aggregate",
-      label: "Aggregate by Period",
-      config: periodAggregateConfig(profile),
+      label: groupForecast ? "Aggregate by group · period" : "Aggregate by Period",
+      config: groupForecast
+        ? periodGroupAggregateConfig(profile)
+        : periodAggregateConfig(profile),
     });
   } else if (archetype === "categorical") {
     steps.push({
@@ -323,7 +407,9 @@ export function planAutoPipeline(input: {
       _primaryMeasure: profile.measureCol,
       _analyticalGrain:
         archetype === "timeseries"
-          ? "period"
+          ? groupForecast
+            ? "group_period"
+            : "period"
           : archetype === "categorical"
             ? "category"
             : "record",
@@ -335,8 +421,10 @@ export function planAutoPipeline(input: {
   if (archetype === "timeseries" && profile.measureCol) {
     steps.push({
       type: "analyse.projection",
-      label: "Forecast",
-      config: forecastConfig(profile, goalRaw),
+      label: groupForecast ? "Forecast by group" : "Forecast",
+      config: forecastConfig(profile, goalRaw, {
+        groupColumn: groupForecast ? profile.categoryCol : "",
+      }),
     });
   } else {
     steps.push({
@@ -558,7 +646,15 @@ export function materializeAutoPipelineGraph(
             : typeof step.config?.goalPrompt === "string"
               ? (step.config.goalPrompt as string)
               : "";
-        const fresh = forecastConfig(profile, goalPrompt);
+        const plannedGroup =
+          typeof config.groupColumn === "string" ? config.groupColumn : "";
+        const groupColumn =
+          plannedGroup && prevTable.columns.includes(plannedGroup)
+            ? plannedGroup
+            : wantsGroupedForecast(goalPrompt, profile)
+              ? profile.categoryCol
+              : "";
+        const fresh = forecastConfig(profile, goalPrompt, { groupColumn });
         const keepColumn =
           typeof config.column === "string" &&
           prevTable.columns.includes(config.column)
@@ -575,8 +671,10 @@ export function materializeAutoPipelineGraph(
           ...fresh,
           column: keepColumn,
           periodColumn: keepPeriod,
+          groupColumn: groupColumn || "",
           periods: Number(config.periods ?? fresh.periods ?? 3),
           method: (config.method as string) || (fresh.method as string) || "trend",
+          excludePartialLastPeriod: config.excludePartialLastPeriod !== false,
           goalPrompt: goalPrompt || (fresh.goalPrompt as string) || "",
         };
       }

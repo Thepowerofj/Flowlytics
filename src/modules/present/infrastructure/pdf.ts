@@ -156,6 +156,15 @@ function drawSlide(
     return;
   }
 
+  if (slide.kind === "chart") {
+    if (slide.caption) {
+      doc.fontSize(10).fillColor(MUTED).text(slide.caption, margin, y);
+      y += 20;
+    }
+    drawLineChart(doc, slide.points, margin, y, pageW - margin * 2, 220);
+    return;
+  }
+
   if (slide.kind === "table") {
     if (slide.caption) {
       doc.fontSize(10).fillColor(MUTED).text(slide.caption, margin, y);
@@ -196,4 +205,117 @@ function drawSlide(
         .stroke();
     }
   }
+}
+
+function drawLineChart(
+  doc: InstanceType<typeof PDFDocument>,
+  points: { x: string; y: number; series?: string }[],
+  x: number,
+  y: number,
+  width: number,
+  height: number,
+) {
+  const usable = points.filter((p) => Number.isFinite(p.y));
+  if (usable.length < 2) {
+    doc.fontSize(11).fillColor(MUTED).text("Not enough points to chart.", x, y);
+    return;
+  }
+
+  doc.roundedRect(x, y, width, height, 12).fill(WHITE);
+
+  const padL = 44;
+  const padR = 16;
+  const padT = 18;
+  const padB = 36;
+  const plotX = x + padL;
+  const plotY = y + padT;
+  const plotW = width - padL - padR;
+  const plotH = height - padT - padB;
+
+  const ys = usable.map((p) => p.y);
+  let minY = Math.min(...ys, 0);
+  let maxY = Math.max(...ys);
+  if (minY === maxY) maxY = minY + 1;
+  const span = maxY - minY;
+
+  // Grid
+  for (let i = 0; i <= 4; i++) {
+    const gy = plotY + (plotH * i) / 4;
+    doc
+      .moveTo(plotX, gy)
+      .lineTo(plotX + plotW, gy)
+      .lineWidth(0.5)
+      .strokeColor(BORDER)
+      .stroke();
+    const val = maxY - (span * i) / 4;
+    doc
+      .fontSize(8)
+      .fillColor(MUTED)
+      .text(formatAxis(val), x + 6, gy - 4, { width: padL - 10, align: "right" });
+  }
+
+  const actual = usable.filter((p) => !/forecast/i.test(p.series ?? "Actual"));
+  const forecast = usable.filter((p) => /forecast/i.test(p.series ?? ""));
+  const drawSeries = (
+    seriesPts: typeof usable,
+    color: string,
+    dashed = false,
+  ) => {
+    if (seriesPts.length < 2) return;
+    doc.save();
+    if (dashed) doc.dash(4, { space: 3 });
+    doc.lineWidth(2.2).strokeColor(color);
+    seriesPts.forEach((p, i) => {
+      const idx = usable.indexOf(p);
+      const px = plotX + (plotW * Math.max(0, idx)) / Math.max(1, usable.length - 1);
+      const py = plotY + plotH * (1 - (p.y - minY) / span);
+      if (i === 0) doc.moveTo(px, py);
+      else doc.lineTo(px, py);
+    });
+    doc.stroke();
+    doc.undash();
+    doc.restore();
+    for (const p of seriesPts) {
+      const idx = usable.indexOf(p);
+      const px = plotX + (plotW * Math.max(0, idx)) / Math.max(1, usable.length - 1);
+      const py = plotY + plotH * (1 - (p.y - minY) / span);
+      doc.circle(px, py, 2.5).fill(color);
+    }
+  };
+
+  drawSeries(actual.length ? actual : usable, ACCENT, false);
+  if (forecast.length) drawSeries(forecast, FORECAST, true);
+
+  // X labels (first / mid / last)
+  const labelIdx = [
+    0,
+    Math.floor((usable.length - 1) / 2),
+    usable.length - 1,
+  ];
+  for (const idx of [...new Set(labelIdx)]) {
+    const p = usable[idx];
+    if (!p) continue;
+    const px = plotX + (plotW * idx) / Math.max(1, usable.length - 1);
+    doc
+      .fontSize(7)
+      .fillColor(MUTED)
+      .text(String(p.x).slice(0, 12), px - 28, y + height - 22, {
+        width: 56,
+        align: "center",
+      });
+  }
+
+  // Legend
+  doc.circle(x + 18, y + height - 12, 3).fill(ACCENT);
+  doc.fontSize(8).fillColor(INK).text("Actual", x + 26, y + height - 16);
+  doc.circle(x + 80, y + height - 12, 3).fill(FORECAST);
+  doc.fontSize(8).fillColor(INK).text("Forecast", x + 88, y + height - 16);
+}
+
+function formatAxis(n: number): string {
+  if (!Number.isFinite(n)) return "";
+  const abs = Math.abs(n);
+  if (abs >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
+  if (abs >= 1_000) return `${(n / 1_000).toFixed(1)}k`;
+  return String(Math.round(n));
 }
