@@ -21,6 +21,10 @@ import {
   suggestFlowName,
   type IngestSeed,
 } from "@/modules/flows";
+import {
+  sampleTable,
+  stratifiedGraphSample,
+} from "@/modules/flows/domain/sampleTable";
 import { enqueueFlowRun } from "@/modules/jobs";
 import {
   buildClarifyPayload,
@@ -57,27 +61,19 @@ function findStoredDatasetMeta(
 const PLAN_SAMPLE_ROWS = 2_500;
 const GRAPH_SAMPLE_ROWS = 40;
 
-/** Sample for planning/clarify — full file reloads via fileId at run time. */
-function sampleTable(table: TabularData, maxRows: number): TabularData {
-  if (table.rows.length <= maxRows) return table;
-  return {
-    columns: table.columns,
-    rows: table.rows.slice(0, maxRows),
-  };
-}
-
 function slimIngestSeed(seed: IngestSeed): IngestSeed {
   const table = seed.table;
   if (!table?.columns?.length) return seed;
   const total =
     (table as TabularData & { _rowCount?: number })._rowCount ??
     table.rows.length;
+  const sampled = stratifiedGraphSample(table, GRAPH_SAMPLE_ROWS);
   // Keep fileId + small sample in the graph; ingest reloads full file at run time
   return {
     ...seed,
     table: {
-      columns: table.columns,
-      rows: table.rows.slice(0, GRAPH_SAMPLE_ROWS),
+      columns: sampled.columns,
+      rows: sampled.rows,
       _compacted: true,
       _rowCount: total,
     } as TabularData & { _compacted: boolean; _rowCount: number },
@@ -634,7 +630,7 @@ export async function askTurn(input: {
         : opts.seed.table
           ? {
               ...opts.seed,
-              table: sampleTable(opts.seed.table, GRAPH_SAMPLE_ROWS),
+              table: stratifiedGraphSample(opts.seed.table, GRAPH_SAMPLE_ROWS),
             }
           : opts.seed;
 

@@ -51,17 +51,32 @@ export function aggregateTable(
   table: TabularData,
   config: AggregateConfig,
 ): TabularData {
-  const groupBy = (config.groupBy ?? []).filter((c) => table.columns.includes(c));
-  const metrics = (config.metrics ?? []).filter(
+  const groupByRaw = Array.isArray(config.groupBy) ? config.groupBy : [];
+  const metricsRaw = Array.isArray(config.metrics)
+    ? config.metrics.filter(
+        (m): m is AggregateMetric =>
+          Boolean(m) && typeof m === "object" && typeof m.op === "string",
+      )
+    : [];
+  const groupBy = groupByRaw.filter(
+    (c): c is string => typeof c === "string" && table.columns.includes(c),
+  );
+  const metrics = metricsRaw.filter(
     (m) =>
       m.op === "count" ||
       m.op === "count_distinct" ||
       m.op === "pct_total" ||
-      table.columns.includes(m.column),
+      (typeof m.column === "string" && table.columns.includes(m.column)),
   );
 
+  const safeRows = Array.isArray(table.rows)
+    ? table.rows.filter((r): r is TabularData["rows"][number] =>
+        Boolean(r) && typeof r === "object",
+      )
+    : [];
+
   if (!groupBy.length && !metrics.length) {
-    return { columns: [...table.columns], rows: [...table.rows] };
+    return { columns: [...table.columns], rows: [...safeRows] };
   }
 
   // No group-by → one total row
@@ -72,7 +87,7 @@ export function aggregateTable(
   const grandSum = new Map<string, number>();
   const grandCount = new Map<string, number>();
 
-  for (const row of table.rows) {
+  for (const row of safeRows) {
     const keyParts = effectiveGroupBy.map((c) => String(row[c] ?? ""));
     const key = keyParts.join("\u0001");
     let bucket = buckets.get(key);

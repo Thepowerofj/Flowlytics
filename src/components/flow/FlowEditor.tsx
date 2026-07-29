@@ -28,6 +28,7 @@ import {
 } from "@/modules/flows/domain/autoPipeline";
 import { alignFlowGraph } from "@/modules/flows/domain/flowLayout";
 import { ActivityConfigWindow } from "./ActivityConfigWindow";
+import { ActivityErrorBoundary } from "./ActivityErrorBoundary";
 import { ActivityNode } from "./ActivityNode";
 import { ActivityPalette } from "./ActivityPalette";
 import type { QuickRecipe } from "./activityMeta";
@@ -733,11 +734,20 @@ function FlowEditorInner({ flowId, initialName, initialGraph }: Props) {
 
       // Prefer this activity's full-run step output (stats/chart/structure/etc.).
       // Clean/Map & Aggregate keep `table` as input — see mergeRunOutputIntoConfig.
-      const dataConfig = mergeRunOutputIntoConfig(
-        boundConfig,
-        runStepOutputs.get(n.id),
-        n.data.blockType,
-      );
+      let dataConfig = boundConfig;
+      try {
+        dataConfig = mergeRunOutputIntoConfig(
+          boundConfig,
+          runStepOutputs.get(n.id),
+          n.data.blockType,
+        );
+      } catch (error) {
+        console.error(
+          `[Flowlytics] mergeRunOutputIntoConfig failed for ${n.id}:`,
+          error,
+        );
+        dataConfig = boundConfig;
+      }
 
       const cfg = dataConfig ?? {};
       const hasTable = Boolean(
@@ -898,11 +908,20 @@ function FlowEditorInner({ flowId, initialName, initialGraph }: Props) {
     })();
     // Config window should show full-run tables when available (same as canvas).
     // Clean/Map & Aggregate keep input `table` — not their own step output.
-    let config = mergeRunOutputIntoConfig(
-      bound,
-      runStepOutputs.get(node.id),
-      node.data.blockType,
-    );
+    let config: Record<string, unknown>;
+    try {
+      config = mergeRunOutputIntoConfig(
+        bound,
+        runStepOutputs.get(node.id),
+        node.data.blockType,
+      );
+    } catch (error) {
+      console.error(
+        `[Flowlytics] mergeRunOutputIntoConfig failed for config ${node.id}:`,
+        error,
+      );
+      config = bound;
+    }
     // Live Clean/Map / Aggregate / AI edits win over re-bind.
     if (
       node.data.blockType === "transform.clean_map" ||
@@ -2431,7 +2450,22 @@ function FlowEditorInner({ flowId, initialName, initialGraph }: Props) {
 export function FlowEditor(props: Props) {
   return (
     <ReactFlowProvider>
-      <FlowEditorInner {...props} />
+      <ActivityErrorBoundary
+        label="flow-editor"
+        fallback={
+          <div className="flex h-full min-h-[320px] items-center justify-center p-6">
+            <div className="max-w-md rounded-2xl border border-danger/30 bg-danger/5 px-5 py-4 text-sm text-ink">
+              <p className="font-semibold text-danger">Builder could not render this pipeline</p>
+              <p className="mt-2 text-muted">
+                One or more activities have corrupt preview data. Refresh the page, or open Ask and
+                rebuild the pipeline from your file.
+              </p>
+            </div>
+          </div>
+        }
+      >
+        <FlowEditorInner {...props} />
+      </ActivityErrorBoundary>
     </ReactFlowProvider>
   );
 }

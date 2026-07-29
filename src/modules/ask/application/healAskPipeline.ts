@@ -8,6 +8,10 @@ import {
   buildValidatedAutoPipeline,
   saveFlowGraph,
 } from "@/modules/flows";
+import {
+  sampleTable,
+  stratifiedGraphSample,
+} from "@/modules/flows/domain/sampleTable";
 import { enqueueFlowRun } from "@/modules/jobs";
 import {
   healHintFromFailure,
@@ -16,16 +20,13 @@ import {
 import { loadUploadedTable } from "./loadUploadedTable";
 
 const PLAN_SAMPLE_ROWS = 2_500;
-
-function sampleTable(table: TabularData, maxRows: number): TabularData {
-  if (table.rows.length <= maxRows) return table;
-  return { columns: table.columns, rows: table.rows.slice(0, maxRows) };
-}
+const GRAPH_SAMPLE_ROWS = 40;
 
 function slimSeedTable(table: TabularData, totalRows: number): TabularData {
+  const sampled = stratifiedGraphSample(table, GRAPH_SAMPLE_ROWS);
   return {
-    columns: table.columns,
-    rows: table.rows.slice(0, 40),
+    columns: sampled.columns,
+    rows: sampled.rows,
     ...({ _compacted: true, _rowCount: totalRows } as object),
   } as TabularData;
 }

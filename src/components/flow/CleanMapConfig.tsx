@@ -123,17 +123,22 @@ export function CleanMapConfig({
   for (const c of columns) {
     if (!withDefaults[c]) withDefaults[c] = defaultColumnTransform();
   }
-  const transformedPreview =
-    columns.length && inputSample.length
-      ? applyTableTransforms(
-          { columns, rows: inputSample },
-          {
-            dropColumns: draftDrop,
-            columnMap: draftMap,
-            transforms: withDefaults,
-          },
-        )
-      : null;
+  let transformedPreview: ReturnType<typeof applyTableTransforms> | null = null;
+  try {
+    transformedPreview =
+      columns.length && inputSample.length
+        ? applyTableTransforms(
+            { columns, rows: inputSample },
+            {
+              dropColumns: draftDrop,
+              columnMap: draftMap,
+              transforms: withDefaults,
+            },
+          )
+        : null;
+  } catch {
+    transformedPreview = null;
+  }
 
   const outFormats = formatsFromCleanMap({
     columnMap: draftMap,
@@ -576,8 +581,14 @@ export function CleanMapConfig({
           <div className="mt-2 max-h-52 overflow-auto">
             <table
               className="w-full text-left text-[11px]"
-              key={`preview-${draftDrop.join(",")}-${Object.keys(draftMap).length}-${Object.values(draftTransforms)
-                .map((t) => t.type)
+              key={`preview-${draftDrop.join(",")}-${Object.keys(draftMap).length}-${Object.values(
+                draftTransforms,
+              )
+                .map((t) =>
+                  t && typeof t === "object" && "type" in t
+                    ? String((t as ColumnTransform).type)
+                    : "auto",
+                )
                 .join(".")}`}
             >
               <thead>

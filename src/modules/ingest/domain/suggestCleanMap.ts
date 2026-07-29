@@ -73,6 +73,24 @@ function scoreDate(samples: string[]): number {
   return samples.length ? n / samples.length : 0;
 }
 
+/** Excel serial days ~1990–2035 — common when Excel stores months as numbers. */
+function scoreExcelSerialDate(table: TabularData, column: string): number {
+  const vals = table.rows
+    .map((r) => r[column])
+    .filter((v) => v != null && v !== "");
+  if (!vals.length) return 0;
+  let hits = 0;
+  for (const v of vals.slice(0, SAMPLE_LIMIT * 2)) {
+    const n = typeof v === "number" ? v : Number(String(v).trim());
+    if (Number.isFinite(n) && n >= 32_874 && n <= 50_000) hits += 1;
+  }
+  const checked = Math.min(vals.length, SAMPLE_LIMIT * 2);
+  return checked ? hits / checked : 0;
+}
+
+const PERIOD_NAME_RE =
+  /(^|_)(date|month|period|week|year|day|tx_month|txn_month)(_|$)|month$|date$/i;
+
 function guessCurrencyCode(samples: string[]): CurrencyCode {
   const joined = samples.join(" ");
   if (/€/.test(joined) || /\bEUR\b/i.test(joined)) return "EUR";
@@ -133,9 +151,12 @@ export function suggestColumnTransform(
   const boolScore = scoreBoolean(samples);
   const currencyScore = scoreCurrency(samples);
   const dateScore = scoreDate(samples);
+  const excelSerialScore = scoreExcelSerialDate(table, column);
   const numberScore = scoreNumber(samples);
+  const periodNamed = PERIOD_NAME_RE.test(column);
 
-  // Prefer currency when symbols appear; dates before loose numbers (Excel serials aside)
+  // Prefer currency when symbols appear; dates before loose numbers.
+  // Excel often stores month columns as serial day numbers (e.g. 46082).
   if (currencyScore >= 0.35 && numberScore >= 0.5) {
     return {
       ...base,
@@ -146,7 +167,11 @@ export function suggestColumnTransform(
       currencyCode: guessCurrencyCode(samples),
     };
   }
-  if (dateScore >= 0.55 && dateScore >= numberScore) {
+  if (
+    excelSerialScore >= 0.6 ||
+    (periodNamed && excelSerialScore >= 0.4) ||
+    (dateScore >= 0.55 && dateScore >= numberScore)
+  ) {
     return {
       ...base,
       type: "date",

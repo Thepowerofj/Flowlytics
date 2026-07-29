@@ -74,6 +74,40 @@ describe("analyse stats", () => {
     expect(pickForecastMeasure(table, "predict sales")).toBe("Sales");
   });
 
+  it("prefers total_* value measures over channel slices", () => {
+    const table = {
+      columns: [
+        "tx_month",
+        "frontshop_missed_value",
+        "otc_missed_value",
+        "total_missed_value",
+      ],
+      rows: [
+        {
+          tx_month: 46082,
+          frontshop_missed_value: 50,
+          otc_missed_value: 40,
+          total_missed_value: 90,
+        },
+        {
+          tx_month: 46113,
+          frontshop_missed_value: 55,
+          otc_missed_value: 42,
+          total_missed_value: 97,
+        },
+        {
+          tx_month: 46143,
+          frontshop_missed_value: 60,
+          otc_missed_value: 45,
+          total_missed_value: 105,
+        },
+      ],
+    };
+    expect(pickForecastMeasure(table, "analytics forecasting reporting")).toBe(
+      "total_missed_value",
+    );
+  });
+
   it("projects a rising series", () => {
     const forecast = projectSeries([1, 2, 3, 4], 2);
     expect(forecast.length).toBe(2);

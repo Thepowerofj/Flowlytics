@@ -533,15 +533,27 @@ function ChartConfig({
     );
   }
 
-  const suggestions = suggestCharts(table);
-  const preview = buildChartSpec(table, {
-    chartType,
-    xColumn,
-    yColumn,
-    suggestionId,
-    columnFormats,
-  });
-  const numericCols = numericColumns(table);
+  let suggestions: ReturnType<typeof suggestCharts> = [];
+  let preview: ReturnType<typeof buildChartSpec> | null = null;
+  let numericCols: string[] = [];
+  try {
+    suggestions = suggestCharts(table);
+    preview = buildChartSpec(table, {
+      chartType,
+      xColumn,
+      yColumn,
+      suggestionId,
+      columnFormats,
+    });
+    numericCols = numericColumns(table);
+  } catch {
+    return (
+      <p className="rounded-xl bg-bg px-3 py-3 text-sm text-muted">
+        Chart preview could not be built from this upstream sample. Re-run the flow or pick
+        different columns.
+      </p>
+    );
+  }
   const numericSet = new Set(numericCols);
 
   const xOptions = ["__row__", ...table.columns];
@@ -649,7 +661,7 @@ function ChartConfig({
           Preview uses upstream output (cleaned and/or aggregated). Pick X/Y from those
           columns only. Full data on Run.
         </p>
-        <MiniChart chart={preview} size="lg" />
+        {preview ? <MiniChart chart={preview} size="lg" /> : null}
       </section>
     </div>
   );
@@ -671,8 +683,18 @@ function StatsConfig({
       </p>
     );
   }
-  const summary = summarizeForNode(table, columnFormats);
-  const stats = computeStats(table);
+  let summary: ReturnType<typeof summarizeForNode>;
+  let stats: ReturnType<typeof computeStats>;
+  try {
+    summary = summarizeForNode(table, columnFormats);
+    stats = computeStats(table);
+  } catch {
+    return (
+      <p className="rounded-xl bg-bg px-3 py-3 text-sm text-muted">
+        Stats could not be computed from this upstream sample. Re-run the flow or check Clean/Map.
+      </p>
+    );
+  }
 
   return (
     <div className="space-y-4">

@@ -277,7 +277,7 @@ function ActivityNodeInner({
           yLabel: col,
           forecastSplit: true,
           valueFormat: forecastFormat,
-          points: runOut.rows.map((r) => {
+          points: runOut.rows.slice(0, 240).map((r) => {
             const row = (r && typeof r === "object" ? r : {}) as Record<
               string,
               unknown

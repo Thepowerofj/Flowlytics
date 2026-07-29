@@ -104,10 +104,15 @@ export function AggregateConfig({
   ];
 
   // Read-only result preview — computed from input table, never used as picker source
-  const resultPreview =
-    table && (safeGroupBy.length || safeMetrics.length)
-      ? aggregateTable(table, { groupBy: safeGroupBy, metrics: safeMetrics })
-      : null;
+  let resultPreview: TabularData | null = null;
+  try {
+    resultPreview =
+      table && (safeGroupBy.length || safeMetrics.length)
+        ? aggregateTable(table, { groupBy: safeGroupBy, metrics: safeMetrics })
+        : null;
+  } catch {
+    resultPreview = null;
+  }
   const outFormats = formatsForAggregate(inputFormats, safeGroupBy, safeMetrics);
 
   return (

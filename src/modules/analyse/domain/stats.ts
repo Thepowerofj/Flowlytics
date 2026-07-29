@@ -173,6 +173,16 @@ export function columnLooksLikeIdentifier(
 function scoreForecastMeasure(table: TabularData, column: string): number {
   let score = 0;
   if (MEASURE_NAME_RE.test(column)) score += 50;
+  // Prefer rolled-up totals over channel slices (frontshop/otc/…)
+  if (/^total([_\s]|$)/i.test(column) || /_total_/i.test(column)) score += 28;
+  if (/^(frontshop|otc|online|instore|channel|segment)_/i.test(column)) {
+    score -= 18;
+  }
+  // Prefer value/amount over script/count companions when both exist
+  if (/value|amount|revenue|sales/i.test(column)) score += 8;
+  if (/scripts?$|qty$|quantity$|units$/i.test(column)) score -= 4;
+  // Formatted display companions are usually worse than the raw numeric
+  if (/_fmt$/i.test(column) || /formatted/i.test(column)) score -= 20;
   if (columnLooksLikeIdentifier(table, column)) score -= 100;
   if (columnLooksLikeDate(table, column)) score -= 100;
 

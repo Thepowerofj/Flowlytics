@@ -24,6 +24,19 @@ describe("suggestCleanMap", () => {
     expect(cfg._columnFormats.Revenue?.kind).toBe("currency");
   });
 
+  it("casts Excel serial month columns as dates", () => {
+    const table = {
+      columns: ["tx_month", "total_missed_value"],
+      rows: [
+        { tx_month: 46082, total_missed_value: 100 },
+        { tx_month: 46113, total_missed_value: 120 },
+        { tx_month: 46143, total_missed_value: 140 },
+      ],
+    };
+    expect(suggestColumnTransform(table, "tx_month").type).toBe("date");
+    expect(suggestCleanMapConfig(table).transforms.tx_month?.type).toBe("date");
+  });
+
   it("drops fully empty columns", () => {
     const cfg = suggestCleanMapConfig({
       columns: ["A", "Empty"],
